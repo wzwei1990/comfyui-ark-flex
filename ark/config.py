@@ -139,11 +139,22 @@ def resolve(
         # not a silent hop to the standard surface.
         fallback = defaults(cfg).get(kind, "standard")
         base = known.get(fallback, Profile(fallback, STANDARD_BASE_URL, "")).base_url
-    key = (api_key_override or "").strip() or entry.api_key or os.environ.get("ARK_API_KEY", "").strip()
+    base = base.rstrip("/")
+
+    key = (api_key_override or "").strip() or entry.api_key
+    if not key:
+        # The Settings dialog (web/arkflex_settings.js writes comfy.settings.json)
+        # sits between the profile and the environment: it is per-machine state
+        # a user can fill without touching a file.
+        from .settings import key_for_profile
+
+        key = key_for_profile(entry.name, base)
+    if not key:
+        key = os.environ.get("ARK_API_KEY", "").strip()
     if not key and entry.name == CUSTOM:
-        # Same idea for the key: a custom URL with no key of its own uses the
-        # default profile's key, which is what "custom base URL, usual account"
-        # means in practice.
+        # Same idea for the key: a custom URL with no key of its own falls back
+        # to the default profile's key, which is what "custom base URL, usual
+        # account" means in practice.
         fallback = defaults(cfg).get(kind, "standard")
         key = known.get(fallback, Profile(fallback, STANDARD_BASE_URL, "")).api_key
-    return Profile(entry.name, base.rstrip("/"), key, entry.label or entry.name)
+    return Profile(entry.name, base, key, entry.label or entry.name)

@@ -33,16 +33,24 @@ git clone <本仓库地址> ComfyUI-ArkFlex
 
 ## 配置
 
+**Key 有三种填法，最省事的是第一种：**
+
+1. **ComfyUI 设置面板**（不用碰文件）：`设置 → Ark Flex` 里有两个输入框 —— **标准 API Key（/api/v3）** 与 **Agent Plan Key（/api/plan/v3）**。ComfyUI 会把它们存进 `user/default/comfy.settings.json`，插件直接读这个文件，所有节点共享。
+2. **`config.json` 的 `profiles.<名字>.api_key`**（适合一台机器多套配置）
+3. **节点上的 `api_key_override`**（临时、只对该节点这一次生效）
+
+也可以完全不填，交给环境变量 `ARK_API_KEY`。
+
+先复制一份配置模板（只在用第 2 种方式时需要）：
+
 ```bash
 cp config.example.json config.json
 ```
 
-把你有权限的 Key 填进去。某个 profile 的 `api_key` 留空时，会回退到环境变量 `ARK_API_KEY`。
-
 每个字段的取值顺序（先命中者优先）：
 
 ```
-节点覆盖  ->  profile 条目  ->  ARK_API_KEY  ->  内置默认
+节点覆盖  ->  profile 条目  ->  ComfyUI 设置面板  ->  ARK_API_KEY  ->  内置默认
 ```
 
 `config.json` 已加入 `.gitignore`：Key 只留在你本机。

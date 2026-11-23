@@ -41,17 +41,27 @@ Restart ComfyUI, then look for the **Ark / 火山方舟** category.
 
 ## Configure
 
+**Three places a key can live; the first needs no file at all:**
+
+1. **ComfyUI Settings** — `Settings → Ark Flex` holds *Standard API Key (/api/v3)*
+   and *Agent Plan Key (/api/plan/v3)*. ComfyUI persists them to
+   `user/default/comfy.settings.json`; the nodes read that file, so the key is
+   typed once and shared by every node.
+2. **`config.json`** → `profiles.<name>.api_key` (one machine, several profiles).
+3. **The node's `api_key_override`** (one call, one node).
+
+Leaving all three empty falls back to `ARK_API_KEY`.
+
+Copying the template is only needed for option 2:
+
 ```bash
 cp config.example.json config.json
 ```
 
-Fill the keys you have. A profile whose key is empty falls back to the
-`ARK_API_KEY` environment variable.
-
 Resolution order for each field, first hit wins:
 
 ```
-node override  ->  profile entry  ->  ARK_API_KEY  ->  built-in default
+node override  ->  profile entry  ->  ComfyUI Settings  ->  ARK_API_KEY  ->  built-in default
 ```
 
 `config.json` is git-ignored on purpose: keys stay on your machine.

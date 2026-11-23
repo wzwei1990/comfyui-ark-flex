@@ -19,7 +19,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ArkVideo": "Ark 视频 · Seedance（火山方舟）",
 }
 
-WEB_DIRECTORY = None
+#: Serves web/arkflex_settings.js — the two key fields in ComfyUI's Settings dialog.
+WEB_DIRECTORY = "./web"
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
