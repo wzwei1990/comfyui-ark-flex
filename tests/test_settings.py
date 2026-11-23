@@ -71,6 +71,15 @@ class SettingsFileTest(unittest.TestCase):
         chosen = resolve("image", api_key_override="from-node", config={})
         self.assertEqual(chosen.api_key, "from-node")
 
+    def test_the_saved_marker_is_not_a_key(self):
+        # The web extension leaves this text in the field after a successful
+        # save; sending it to the API would be a confusing 401.
+        from arkflex.ark.settings import SAVED_MARKER
+
+        self.write({STANDARD_KEY_ID: SAVED_MARKER, PLAN_KEY_ID: "plan-key"})
+        self.assertEqual(key_for_profile("standard", STANDARD_BASE_URL), "")
+        self.assertEqual(key_for_profile("agent-plan", AGENT_PLAN_BASE_URL), "plan-key")
+
 
 if __name__ == "__main__":
     unittest.main()

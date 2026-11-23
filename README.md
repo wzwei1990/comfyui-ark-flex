@@ -47,10 +47,13 @@ in ComfyUI's global settings file.
 
 Three ways to enter it; the first needs no file at all:
 
-1. **ComfyUI Settings** — `Settings → Ark Flex` has *Standard API Key (/api/v3)*
-   and *Agent Plan Key (/api/plan/v3)*. Pasting one writes it into the pack's
-   `config.json` immediately and then **clears the field**, so no plaintext copy
-   stays in `user/default/comfy.settings.json`.
+1. **ComfyUI Settings** — `Settings → Ark Flex` has four entries: *Standard API Key (/api/v3)*, *Agent Plan Key (/api/plan/v3)*, **default image surface** and **default video surface**.
+   Pasting a key writes it into the pack's `config.json` immediately and the field
+   turns into a **`✅ saved to config.json`** marker — not blank, so a save never
+   looks like a no-op. Paste again to replace it. No plaintext copy stays in
+   `user/default/comfy.settings.json`.
+   The two pickers write `defaults.image` / `defaults.video`, so images and video
+   can run on different surfaces (images on the standard API, video on Agent Plan).
 2. **`config.json`** → `profiles.<name>.api_key` (one machine, several profiles).
 3. **The node's `api_key_override`** (one call, one node).
 

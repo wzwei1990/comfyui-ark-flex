@@ -37,8 +37,9 @@ git clone <本仓库地址> ComfyUI-ArkFlex
 
 三种填法，推荐第一种（不用碰文件）：
 
-1. **ComfyUI 设置面板**：`设置 → Ark Flex` 里两个输入框 —— `标准 API Key（/api/v3）`、`Agent Plan Key（/api/plan/v3）`。
-   粘贴后会**立即写入本插件目录的 `config.json`**，然后**把输入框清空**（不在 ComfyUI 全局 `comfy.settings.json` 里留明文）。
+1. **ComfyUI 设置面板**：`设置 → Ark Flex` 里四项 —— `标准 API Key（/api/v3）`、`Agent Plan Key（/api/plan/v3）`、**图片默认接入面**、**视频默认接入面**。
+   粘贴 Key 后会**立即写入本插件目录的 `config.json`**，字段随即变成 **`✅ 已保存到 config.json（卸载插件即清除）`** 的标记（不是空白，避免"以为没填上"）；再粘一次即覆盖。ComfyUI 全局 `comfy.settings.json` 里**不留明文**。
+   两个下拉写的是 `config.json` 的 `defaults.image` / `defaults.video` —— 图片和视频可以各走一套入口（例如图片走标准、视频走 Agent Plan）。
 2. **`config.json` 的 `profiles.<名字>.api_key`**：手动编辑（适合一台机器多套配置）
 3. **节点上的 `api_key_override`**：临时、只对该节点这一次生效
 

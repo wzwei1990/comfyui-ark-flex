@@ -21,6 +21,12 @@ PLAN_KEY_ID = "ArkFlex.PlanApiKey"
 
 PLAN_URL_HINT = "/api/plan/"
 
+#: What the settings field shows after a key was saved into the pack folder.
+#: It is not a secret, and it must never be sent to the API as one — the web
+#: extension writes it, so the two strings have to match
+#: (`web/arkflex_settings.js`).
+SAVED_MARKER = "✅ 已保存到 config.json（卸载插件即清除）"
+
 
 def user_settings_path() -> Path | None:
     """`<ComfyUI>/user/default/comfy.settings.json`, when ComfyUI is importable."""
@@ -54,7 +60,13 @@ def key_for_profile(name: str, base_url: str, path: Path | None = None) -> str:
     data = read_settings(path)
     plan = name == "agent-plan" or PLAN_URL_HINT in (base_url or "")
     value = data.get(PLAN_KEY_ID if plan else STANDARD_KEY_ID)
-    return value.strip() if isinstance(value, str) and value.strip() else ""
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    # The marker means "already saved into the pack folder"; it is not a key.
+    if not text or text == SAVED_MARKER:
+        return ""
+    return text
 
 
 __all__ = ["STANDARD_KEY_ID", "PLAN_KEY_ID", "user_settings_path", "read_settings", "key_for_profile"]
