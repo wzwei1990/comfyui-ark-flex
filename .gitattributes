@@ -1,0 +1,13 @@
+# Keep the repository LF inside, whatever the checkout's platform.
+* text=auto eol=lf
+
+# Windows-only helpers, if any ever land here, keep their native endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets are never normalised.
+*.png binary
+*.jpg binary
+*.webp binary
+*.mp4 binary

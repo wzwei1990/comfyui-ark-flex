@@ -1,0 +1,15 @@
+# Local configuration holds API keys: never commit it.
+config.json
+
+# Legacy single-key file some packs use; ignored here too in case one appears.
+api_key.txt
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.DS_Store

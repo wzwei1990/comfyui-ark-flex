@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to config.json and fill in the keys you actually have. Only the two official base URLs are built in; keys are never shipped. ARK_API_KEY (environment) is the fallback for any profile whose api_key is empty.",
+  "profiles": {
+    "standard": {
+      "label": "标准 API / Standard",
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "api_key": ""
+    },
+    "agent-plan": {
+      "label": "Agent Plan",
+      "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+      "api_key": ""
+    }
+  },
+  "defaults": {
+    "image": "standard",
+    "video": "standard"
+  }
+}
