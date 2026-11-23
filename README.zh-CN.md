@@ -33,27 +33,30 @@ git clone <本仓库地址> ComfyUI-ArkFlex
 
 ## 配置
 
-**Key 有三种填法，最省事的是第一种：**
+**Key 就存在这个插件目录里**（`custom_nodes/ComfyUI-ArkFlex/config.json`），所以**卸载 = 删目录 = Key 一起消失**，ComfyUI 全局设置里不留副本。
 
-1. **ComfyUI 设置面板**（不用碰文件）：`设置 → Ark Flex` 里有两个输入框 —— **标准 API Key（/api/v3）** 与 **Agent Plan Key（/api/plan/v3）**。ComfyUI 会把它们存进 `user/default/comfy.settings.json`，插件直接读这个文件，所有节点共享。
-2. **`config.json` 的 `profiles.<名字>.api_key`**（适合一台机器多套配置）
-3. **节点上的 `api_key_override`**（临时、只对该节点这一次生效）
+三种填法，推荐第一种（不用碰文件）：
 
-也可以完全不填，交给环境变量 `ARK_API_KEY`。
+1. **ComfyUI 设置面板**：`设置 → Ark Flex` 里两个输入框 —— `标准 API Key（/api/v3）`、`Agent Plan Key（/api/plan/v3）`。
+   粘贴后会**立即写入本插件目录的 `config.json`**，然后**把输入框清空**（不在 ComfyUI 全局 `comfy.settings.json` 里留明文）。
+2. **`config.json` 的 `profiles.<名字>.api_key`**：手动编辑（适合一台机器多套配置）
+3. **节点上的 `api_key_override`**：临时、只对该节点这一次生效
 
-先复制一份配置模板（只在用第 2 种方式时需要）：
+也可以交给环境变量 `ARK_API_KEY`。
 
-```bash
-cp config.example.json config.json
-```
-
-每个字段的取值顺序（先命中者优先）：
+取值顺序（先命中者优先）：
 
 ```
-节点覆盖  ->  profile 条目  ->  ComfyUI 设置面板  ->  ARK_API_KEY  ->  内置默认
+节点覆盖  ->  config.json 的 profile  ->  旧版 comfy.settings.json（仅兼容读取）  ->  ARK_API_KEY  ->  内置默认
 ```
 
-`config.json` 已加入 `.gitignore`：Key 只留在你本机。
+`config.json` 已加入 `.gitignore`：Key 不会进仓库。
+
+## 卸载
+
+删掉 `custom_nodes/ComfyUI-ArkFlex` 目录并重启 ComfyUI 即可 —— 节点、设置项、Key 一起消失，没有残留。
+
+（唯一的历史情况：如果你**在早期版本**里填过 Key，ComfyUI 的 `user/default/comfy.settings.json` 里会有一条旧记录；本版首次加载会自动把它迁移进插件目录并清空那条记录。）
 
 ## 节点
 

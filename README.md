@@ -41,30 +41,37 @@ Restart ComfyUI, then look for the **Ark / 火山方舟** category.
 
 ## Configure
 
-**Three places a key can live; the first needs no file at all:**
+**The key lives inside this pack's folder** (`custom_nodes/ComfyUI-ArkFlex/config.json`),
+so uninstalling — deleting the folder — takes the key with it. Nothing is left
+in ComfyUI's global settings file.
 
-1. **ComfyUI Settings** — `Settings → Ark Flex` holds *Standard API Key (/api/v3)*
-   and *Agent Plan Key (/api/plan/v3)*. ComfyUI persists them to
-   `user/default/comfy.settings.json`; the nodes read that file, so the key is
-   typed once and shared by every node.
+Three ways to enter it; the first needs no file at all:
+
+1. **ComfyUI Settings** — `Settings → Ark Flex` has *Standard API Key (/api/v3)*
+   and *Agent Plan Key (/api/plan/v3)*. Pasting one writes it into the pack's
+   `config.json` immediately and then **clears the field**, so no plaintext copy
+   stays in `user/default/comfy.settings.json`.
 2. **`config.json`** → `profiles.<name>.api_key` (one machine, several profiles).
 3. **The node's `api_key_override`** (one call, one node).
 
-Leaving all three empty falls back to `ARK_API_KEY`.
+`ARK_API_KEY` still works as a fallback.
 
-Copying the template is only needed for option 2:
-
-```bash
-cp config.example.json config.json
-```
-
-Resolution order for each field, first hit wins:
+Resolution order, first hit wins:
 
 ```
-node override  ->  profile entry  ->  ComfyUI Settings  ->  ARK_API_KEY  ->  built-in default
+node override  ->  config.json profile  ->  legacy comfy.settings.json (read only)  ->  ARK_API_KEY  ->  built-in default
 ```
 
-`config.json` is git-ignored on purpose: keys stay on your machine.
+`config.json` is git-ignored on purpose: keys stay out of the repository.
+
+## Uninstall
+
+Delete `custom_nodes/ComfyUI-ArkFlex` and restart ComfyUI. Nodes, settings
+entries and the key all go with it — no residue.
+
+(One historical case: a key entered in an early version would sit in
+`user/default/comfy.settings.json`; the first load of this version migrates it
+into the pack folder and clears that record.)
 
 ## Nodes
 
