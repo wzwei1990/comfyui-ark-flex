@@ -31,6 +31,27 @@ git clone <本仓库地址> ComfyUI-ArkFlex
 
 重启 ComfyUI，节点分类里会出现 **Ark / 火山方舟**。
 
+## 支持的接口
+
+| `kind` | 是什么 | 参考图 |
+|---|---|---|
+| `ark`（默认） | 火山方舟，两个入口：`/api/v3`（标准）与 `/api/plan/v3`（Agent Plan） | `refs_mode: json`（data URL） |
+| `openai` | **任何 OpenAI 兼容的图片接口**（第三方中转、官方 `/v1` 等） | `json`（data URL，多数中转）/ `multipart`（真正的 `/images/edits` 上传）/ `none` |
+
+```jsonc
+// config.json
+"profiles": {
+  "standard":    { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/v3",      "api_key": "…" },
+  "agent-plan":  { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" },
+  "apiyi":       { "kind": "openai", "base_url": "https://你的中转/v1", "api_key": "…", "refs_mode": "json" },
+  "openai":      { "kind": "openai", "base_url": "https://api.openai.com/v1", "api_key": "…", "refs_mode": "multipart" }
+}
+```
+
+- 视频节点**只支持方舟入口**；给视频选一个 `kind: openai` 的 profile 会直接报错说明原因。
+- 尺寸：用 `size` 预设，或同时填 `width`/`height`（两者都 >0 才生效；方舟要求 16 的倍数，OpenAI 兼容接口不限）。
+- 这样 `comfyui-byokey` 的两类家族（方舟中转、第三方中转）都能被替换：同一个节点 + 不同 profile。
+
 ## 配置
 
 **Key 就存在这个插件目录里**（`custom_nodes/ComfyUI-ArkFlex/config.json`），所以**卸载 = 删目录 = Key 一起消失**，ComfyUI 全局设置里不留副本。

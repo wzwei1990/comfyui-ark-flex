@@ -41,6 +41,23 @@ class ProfilesTest(unittest.TestCase):
         self.assertIn("proxy", known)
         self.assertEqual(known["proxy"].display, "proxy")
 
+    def test_provider_kind_and_refs_mode_are_read(self):
+        known = profiles({
+            "profiles": {
+                "relay": {"base_url": "https://example.invalid/v1", "kind": "openai", "refs_mode": "multipart"},
+                "typo": {"base_url": "https://example.invalid/v1b", "kind": "openai-compatible"},
+            }
+        })
+        self.assertEqual(known["relay"].kind, "openai")
+        self.assertEqual(known["relay"].refs_mode, "multipart")
+        self.assertFalse(known["relay"].is_ark)
+        self.assertEqual(known["typo"].kind, "ark", "an unknown kind falls back to Ark, never guesses")
+
+    def test_built_in_surfaces_default_to_ark_and_json_refs(self):
+        known = profiles({})
+        self.assertEqual(known["standard"].kind, "ark")
+        self.assertEqual(known["standard"].refs_mode, "json")
+
     def test_a_profile_without_a_url_is_ignored(self):
         known = profiles({"profiles": {"broken": {"api_key": "k"}, "blank": {"base_url": "  "}}})
         self.assertNotIn("broken", known)

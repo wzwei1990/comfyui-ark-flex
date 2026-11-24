@@ -16,8 +16,8 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ArkImage": "Ark 图片 · Seedream（火山方舟）",
-    "ArkVideo": "Ark 视频 · Seedance（火山方舟）",
+    "ArkImage": "图片生成 · Ark / OpenAI 兼容（Ark Flex）",
+    "ArkVideo": "视频生成 · Seedance（火山方舟）",
 }
 
 #: Serves web/arkflex_settings.js — the two key fields in ComfyUI's Settings dialog.

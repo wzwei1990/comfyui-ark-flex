@@ -1,15 +1,23 @@
-"""Where a request goes: base URL + API key, resolved per call.
+"""Where a request goes: base URL + API key, resolved per call, plus its dialect.
 
-The two Volcengine Ark surfaces differ only in their base URL, and a key from
-one is rejected by the other (403). So every node carries a *profile*: a named
-pair of (base_url, api_key). Image and video pick their profile independently,
-which is what makes "images on the standard surface, video on the plan" work.
+A *profile* is a named pair of (base_url, api_key) with two hints:
+
+- `kind`: `ark` (Volcengine Ark) or `openai` (any OpenAI-compatible image API —
+  Ark's own image API is one of them, as are the third-party relays that keep
+  the deprecated `comfyui-byokey` pack alive today). The wire format is the same
+  `/images/generations` shape either way; the difference is how reference images
+  travel and which error text makes sense.
+- `refs_mode`: `json` (data URLs in the body, what Ark and most relays accept),
+  `multipart` (a real OpenAI `/images/edits` upload), or `none` (no references).
+
+Ark's two surfaces differ only in the base URL, and a key from one is rejected by
+the other (403), which is why image and video pick their profile independently.
 
 Resolution order for each field, first hit wins:
 
-    node override  ->  profile entry  ->  environment  ->  built-in default
+    node override  ->  profile entry  ->  ARK_API_KEY  ->  built-in default
 
-Only the two official base URLs are built in; keys never are.
+Only the two official Ark base URLs are built in; keys never are.
 """
 from __future__ import annotations
 
@@ -30,19 +38,28 @@ EXAMPLE_PATH = NODE_DIR / "config.example.json"
 
 CUSTOM = "自定义 / custom"
 
+KINDS = ("ark", "openai")
+REFS_MODES = ("json", "multipart", "none")
+
 
 @dataclass(frozen=True)
 class Profile:
-    """One (base_url, api_key) pair, by name."""
+    """One (base_url, api_key) pair, by name, plus how to talk to it."""
 
     name: str
     base_url: str
     api_key: str
     label: str = ""
+    kind: str = "ark"
+    refs_mode: str = "json"
 
     @property
     def display(self) -> str:
         return self.label or self.name
+
+    @property
+    def is_ark(self) -> bool:
+        return self.kind == "ark"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -59,8 +76,18 @@ def raw_config() -> dict[str, Any]:
     return _read_json(CONFIG_PATH)
 
 
+def _kind(value: Any) -> str:
+    return value if isinstance(value, str) and value in KINDS else "ark"
+
+
+def _refs_mode(value: Any, kind: str) -> str:
+    if isinstance(value, str) and value in REFS_MODES:
+        return value
+    return "json" if kind == "ark" else "json"
+
+
 def profiles(config: dict[str, Any] | None = None) -> dict[str, Profile]:
-    """Every configured profile, plus the two official surfaces as defaults.
+    """Every configured profile, plus the two official Ark surfaces as defaults.
 
     A `config.json` entry wins over the built-in one of the same name, so a user
     can pre-fill keys without repeating the URLs.
@@ -80,11 +107,14 @@ def profiles(config: dict[str, Any] | None = None) -> dict[str, Profile]:
             label = value.get("label")
             if not isinstance(base, str) or not base.strip():
                 continue
+            kind = _kind(value.get("kind"))
             out[name] = Profile(
                 name,
                 base.strip().rstrip("/"),
                 key.strip() if isinstance(key, str) else "",
                 label if isinstance(label, str) and label else name,
+                kind,
+                _refs_mode(value.get("refs_mode"), kind),
             )
     return out
 
@@ -117,7 +147,7 @@ def resolve(
 ) -> Profile:
     """The profile a single node call should use.
 
-    `kind` is `image` or `video` and only selects the fallback default; the
+    `kind` here is `image` or `video` and only selects the fallback default; the
     profile itself is whatever the node asked for. An explicit base URL override
     always wins, and a key override applies to the resolved profile.
     """
@@ -157,4 +187,4 @@ def resolve(
         # account" means in practice.
         fallback = defaults(cfg).get(kind, "standard")
         key = known.get(fallback, Profile(fallback, STANDARD_BASE_URL, "")).api_key
-    return Profile(entry.name, base, key, entry.label or entry.name)
+    return Profile(entry.name, base, key, entry.label or entry.name, entry.kind, entry.refs_mode)

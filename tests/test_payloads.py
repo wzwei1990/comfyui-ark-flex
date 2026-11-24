@@ -24,16 +24,56 @@ class TensorStub:
     name = "img"
 
 
+class VideoDerivationTest(unittest.TestCase):
+    """Ark wants ratio + tier + seconds; a shot table gives pixels + frames."""
+
+    def test_ratio_comes_from_the_pixels(self):
+        self.assertEqual(video_module.ratio_for(1344, 768), "16:9")
+        self.assertEqual(video_module.ratio_for(768, 1344), "9:16")
+        self.assertEqual(video_module.ratio_for(1024, 1024), "1:1")
+        self.assertEqual(video_module.ratio_for(0, 0, "9:16"), "9:16", "no pixels, keep the widget")
+
+    def test_resolution_tier_comes_from_the_long_side(self):
+        self.assertEqual(video_module.resolution_for(1920, 1080), "1080p")
+        self.assertEqual(video_module.resolution_for(1344, 768), "720p")
+        self.assertEqual(video_module.resolution_for(832, 480), "480p")
+        self.assertEqual(video_module.resolution_for(0, 0, "1080p"), "1080p")
+
+    def test_duration_accepts_frames_or_seconds_and_clamps_to_ark(self):
+        self.assertEqual(video_module.duration_for(124, 5, 24), 5)
+        self.assertEqual(video_module.duration_for(0, 7, 24), 7)
+        self.assertEqual(video_module.duration_for(0, 1, 24), 4, "Ark's floor")
+        self.assertEqual(video_module.duration_for(900, 5, 24), 30, "Ark's ceiling")
+
+
+class MultipartTest(unittest.TestCase):
+    def test_fields_and_files_are_framed_for_images_edits(self):
+        from arkflex.ark.client import build_multipart
+
+        body = build_multipart(
+            {"model": "m", "prompt": "p", "n": "1"},
+            [("ref0.png", b"PNGDATA", "image/png")],
+            "BOUND",
+        )
+        text = body.decode("utf-8", "replace")
+        self.assertIn('Content-Disposition: form-data; name="model"', text)
+        self.assertIn('name="image[]"; filename="ref0.png"', text)
+        self.assertIn("Content-Type: image/png", text)
+        self.assertIn("PNGDATA", text)
+        self.assertTrue(body.endswith(b"--BOUND--\r\n"), "the closing boundary ends the body")
+
+
 class PayloadTest(unittest.TestCase):
     def setUp(self):
         self._video_encoder = video_module.tensor_to_data_url
-        self._image_encoder = image_module.tensor_to_data_url
+        self._common_encoder = common.tensor_to_data_url
         video_module.tensor_to_data_url = _fake_data_url
-        image_module.tensor_to_data_url = _fake_data_url
+        # image.py imports this lazily from common, so stub it at the source.
+        common.tensor_to_data_url = _fake_data_url
 
     def tearDown(self):
         video_module.tensor_to_data_url = self._video_encoder
-        image_module.tensor_to_data_url = self._image_encoder
+        common.tensor_to_data_url = self._common_encoder
 
     # ── video content ────────────────────────────────────────────────────
 
@@ -76,11 +116,30 @@ class PayloadTest(unittest.TestCase):
         with self.assertRaises(ArkError):
             image_module.size_value("huge")
 
+    def test_explicit_width_height_win_and_are_validated_per_dialect(self):
+        # Both zero: the preset.
+        self.assertEqual(image_module.resolve_size("1280x720 (16:9)", 0, 0), "1280x720")
+        # Both given: the caller's own frame.
+        self.assertEqual(image_module.resolve_size("1024x1024 (1:1)", 1344, 768), "1344x768")
+        # Ark insists on multiples of 16; an OpenAI endpoint does not.
+        with self.assertRaises(ArkError):
+            image_module.resolve_size("1024x1024 (1:1)", 1000, 768, kind="ark")
+        self.assertEqual(image_module.resolve_size("1024x1024 (1:1)", 1000, 768, kind="openai"), "1000x768")
+        # Half a pair is a mistake, not a preset.
+        with self.assertRaises(ArkError):
+            image_module.resolve_size("1024x1024 (1:1)", 1024, 0)
+
     def test_image_payload_carries_seed_only_when_given(self):
         body = image_module.payload_for(model="m", prompt="p", size="1024x1024", watermark=False, seed=-1)
         self.assertNotIn("seed", body)
         body = image_module.payload_for(model="m", prompt="p", size="1024x1024", watermark=False, seed=7)
         self.assertEqual(body["seed"], 7)
+
+    def test_watermark_is_omitted_for_openai_endpoints(self):
+        body = image_module.payload_for(model="m", prompt="p", size="1024x1024", watermark=None, seed=-1)
+        self.assertNotIn("watermark", body, "an OpenAI endpoint may reject unknown fields")
+        body = image_module.payload_for(model="m", prompt="p", size="1024x1024", watermark=False, seed=-1)
+        self.assertIn("watermark", body)
 
     def test_image_payload_includes_references_as_data_urls(self):
         body = image_module.payload_for(

@@ -39,6 +39,28 @@ git clone <this-repo> ComfyUI-ArkFlex
 
 Restart ComfyUI, then look for the **Ark / 火山方舟** category.
 
+## Which endpoints it talks to
+
+| `kind` | What it is | Reference images |
+| --- | --- | --- |
+| `ark` (default) | Volcengine Ark — `/api/v3` (standard) and `/api/plan/v3` (Agent Plan) | `refs_mode: json` (data URLs) |
+| `openai` | **any OpenAI-compatible image API** (official `/v1`, a third-party relay, …) | `json` (data URLs, most relays) / `multipart` (a real `/images/edits` upload) / `none` |
+
+```jsonc
+"profiles": {
+  "standard":   { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/v3",      "api_key": "…" },
+  "agent-plan": { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" },
+  "relay":      { "kind": "openai", "base_url": "https://your-relay/v1", "api_key": "…", "refs_mode": "json" }
+}
+```
+
+Video is Ark-only: pointing a video node at an `openai` profile fails with an
+explanation. Size comes from the `size` preset, or from `width` + `height` when
+both are above zero (Ark wants multiples of 16; an OpenAI endpoint does not).
+
+That is what lets this pack replace `comfyui-byokey`'s two families — Ark relay
+and third-party relay — with one node and two profiles.
+
 ## Configure
 
 **The key lives inside this pack's folder** (`custom_nodes/ComfyUI-ArkFlex/config.json`),

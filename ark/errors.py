@@ -19,8 +19,14 @@ def _snippet(body: object, limit: int = 300) -> str:
 
 def explain(status: int, body: object, base_url: str) -> str:
     """A sentence that names the likely cause, then the server's own words."""
-    where = "/api/plan/v3" if "/api/plan/" in base_url else base_url
+    where = base_url
+    ark = "ark.cn-beijing.volces.com" in base_url
     if status in (401, 403):
+        if not ark:
+            return (
+                f"鉴权失败（HTTP {status}）：{where} 拒绝了这把 Key。"
+                f"检查该 profile 的 api_key（以及它是否属于这个 base_url）。服务器返回：{_snippet(body)}"
+            )
         surface = "Agent Plan" if "/api/plan/" in base_url else "标准 API"
         other = "标准 API（/api/v3）" if surface == "Agent Plan" else "Agent Plan（/api/plan/v3）"
         return (

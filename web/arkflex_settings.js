@@ -66,6 +66,7 @@ app.registerExtension({
     {
       id: "ArkFlex.StandardApiKey",
       name: "Ark Flex · 标准 API Key（/api/v3）",
+      category: ["Ark Flex"],
       type: "text",
       defaultValue: "",
       tooltip:
@@ -78,6 +79,7 @@ app.registerExtension({
     {
       id: "ArkFlex.PlanApiKey",
       name: "Ark Flex · Agent Plan Key（/api/plan/v3）",
+      category: ["Ark Flex"],
       type: "text",
       defaultValue: "",
       tooltip:
@@ -90,6 +92,7 @@ app.registerExtension({
     {
       id: "ArkFlex.ImageSurface",
       name: "Ark Flex · 图片默认接入面",
+      category: ["Ark Flex"],
       type: "combo",
       options: SURFACES,
       defaultValue: "standard",
@@ -101,6 +104,7 @@ app.registerExtension({
     {
       id: "ArkFlex.VideoSurface",
       name: "Ark Flex · 视频默认接入面",
+      category: ["Ark Flex"],
       type: "combo",
       options: SURFACES,
       defaultValue: "standard",

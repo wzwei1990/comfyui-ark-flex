@@ -1,4 +1,10 @@
-"""Image generation on Volcengine Ark (Seedream family)."""
+"""Image generation: Volcengine Ark (Seedream) and OpenAI-compatible endpoints.
+
+Both dialects share `/images/generations` with the same handful of fields —
+Ark's own image API is OpenAI-compatible — so one node covers Ark, Agent Plan and
+third-party relays. What differs is where reference images go: data URLs in the
+body (Ark, most relays) or a real multipart upload to `/images/edits`.
+"""
 from __future__ import annotations
 
 import base64
@@ -14,7 +20,7 @@ from .common import (
     client_for,
     merge_extra,
     model_id,
-    tensor_to_data_url,
+    tensor_to_png,
 )
 
 IMAGE_MODELS = [
@@ -48,30 +54,57 @@ def size_value(label: str) -> str:
     return f"{width}x{height}"
 
 
+def resolve_size(label: str, width: int, height: int, *, kind: str = "ark") -> str:
+    """A `WxH` string from either the explicit width/height or the preset.
+
+    Explicit dimensions exist for callers that compute them per aspect ratio
+    (the `dsh-short-video-studio` manifests inject `width`/`height` of the
+    frame). Ark itself insists on multiples of 16; other endpoints do not, so the
+    check is dialect-aware rather than universal.
+    """
+    w, h = int(width), int(height)
+    if w > 0 and h > 0:
+        if kind == "ark" and (w % 16 or h % 16):
+            raise ArkError(f"火山方舟要求宽高为 16 的倍数（现在是 {w}x{h}）；可用画布比例推导的尺寸。")
+        if w < 64 or h < 64:
+            raise ArkError(f"尺寸太小：{w}x{h}")
+        return f"{w}x{h}"
+    if w > 0 or h > 0:
+        raise ArkError("width / height 要么都填（>0），要么都留 0 用 size 预设。")
+    return size_value(label)
+
+
 def payload_for(
     *,
     model: str,
     prompt: str,
     size: str,
-    watermark: bool,
-    seed: int,
+    watermark: bool | None = None,
+    seed: int = -1,
     refs: list[Any] | None = None,
     sequential: bool = False,
 ) -> dict[str, Any]:
-    """The request body for one image call."""
+    """The request body for one image call (JSON dialect).
+
+    `watermark` is an Ark field; it is omitted when None so an OpenAI endpoint
+    never sees a parameter it may reject.
+    """
     body: dict[str, Any] = {
         "model": model,
         "prompt": prompt,
         "size": size,
         "response_format": "url",
-        "watermark": bool(watermark),
     }
+    if watermark is not None:
+        body["watermark"] = bool(watermark)
     if int(seed) >= 0:
         body["seed"] = int(seed)
     if sequential:
         body["sequential_image_generation"] = "auto"
     usable = [image for image in (refs or []) if image is not None]
     if usable:
+        from .common import tensor_to_data_url
+
         body["image"] = [tensor_to_data_url(image) for image in usable]
     return body
 
@@ -124,7 +157,7 @@ def blobs_to_tensor(blobs: list[bytes]):
 
 
 class ArkImage:
-    """Seedream generation, with optional reference images."""
+    """Image generation through one profile: Ark, Agent Plan, or any OpenAI-compatible API."""
 
     CATEGORY = "Ark / 火山方舟"
     FUNCTION = "generate"
@@ -139,6 +172,9 @@ class ArkImage:
                 "prompt": ("STRING", {"default": "", "multiline": True}),
                 "model": (IMAGE_MODELS, {"default": IMAGE_MODELS[0]}),
                 "size": (SIZES, {"default": SIZES[0]}),
+                "width": ("INT", {"default": 0, "min": 0, "max": 4096,
+                                  "tooltip": "0 = 用 size 预设；由流程按画布比例推导时填这里（两者都要 >0）。"}),
+                "height": ("INT", {"default": 0, "min": 0, "max": 4096}),
                 "max_images": ("INT", {"default": 1, "min": 1, "max": 4}),
                 "base_url_override": PROFILE_INPUTS["base_url_override"],
                 "api_key_override": PROFILE_INPUTS["api_key_override"],
@@ -162,6 +198,8 @@ class ArkImage:
         prompt: str,
         model: str,
         size: str,
+        width: int,
+        height: int,
         max_images: int,
         base_url_override: str,
         api_key_override: str,
@@ -182,33 +220,55 @@ class ArkImage:
             api_key_override=api_key_override,
         )
         model_name = model_id(model, custom_model)
+        pixels = resolve_size(size, width, height, kind=chosen.kind)
         count = max(1, int(max_images))
-        refs = [image1, image2, image3, image4]
+        refs = [image for image in (image1, image2, image3, image4) if image is not None]
+        if refs and chosen.refs_mode == "none":
+            raise ArkError(f"profile「{chosen.name}」不允许参考图（refs_mode=none）。")
+        if chosen.kind == "ark":
+            watermark_value: bool | None = bool(watermark)
+        else:
+            # An OpenAI-compatible endpoint may reject unknown fields; leave the
+            # Ark-only watermark out unless the user put it into extra_json.
+            watermark_value = bool(watermark) if "watermark" in (extra_json or "") else None
 
         blobs: list[bytes] = []
-        for index in range(count):
-            # Ask N times instead of relying on a sequential-mode flag that only
-            # some Seedream versions honour; the seed steps so the calls differ.
-            call_seed = int(seed) + index if int(seed) >= 0 else -1
-            body = payload_for(
-                model=model_name,
-                prompt=prompt,
-                size=size_value(size),
-                watermark=watermark,
-                seed=call_seed,
-                refs=refs,
-            )
-            body = merge_extra(body, extra_json)
-            result = client.post("/images/generations", body, timeout=float(timeout))
+        if refs and chosen.refs_mode == "multipart":
+            fields = {
+                "model": model_name,
+                "prompt": prompt,
+                "size": pixels,
+                "n": str(count),
+            }
+            files = [(f"ref{index}.png", *tensor_to_png(image)) for index, image in enumerate(refs)]
+            result = client.images_edits(fields, files, timeout=float(timeout))
             blobs.extend(decode_images(result))
+        else:
+            for index in range(count):
+                # Ask N times instead of relying on a sequential-mode flag that only
+                # some Seedream versions honour; the seed steps so the calls differ.
+                call_seed = int(seed) + index if int(seed) >= 0 else -1
+                body = payload_for(
+                    model=model_name,
+                    prompt=prompt,
+                    size=pixels,
+                    watermark=watermark_value,
+                    seed=call_seed,
+                    refs=refs,
+                )
+                body = merge_extra(body, extra_json)
+                result = client.post("/images/generations", body, timeout=float(timeout))
+                blobs.extend(decode_images(result))
 
         images = blobs_to_tensor(blobs)
         info = json.dumps(
             {
                 "profile": chosen.name,
+                "kind": chosen.kind,
+                "refs_mode": chosen.refs_mode,
                 "base_url": chosen.base_url,
                 "model": model_name,
-                "size": size_value(size),
+                "size": pixels,
                 "count": len(blobs),
             },
             ensure_ascii=False,
@@ -216,4 +276,4 @@ class ArkImage:
         return (images, info)
 
 
-__all__ = ["ArkImage", "IMAGE_MODELS", "SIZES", "payload_for", "decode_images", "size_value"]
+__all__ = ["ArkImage", "IMAGE_MODELS", "SIZES", "payload_for", "decode_images", "size_value", "resolve_size"]

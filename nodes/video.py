@@ -39,6 +39,54 @@ MODES = ["文生视频 / text", "首帧 / first_frame", "首尾帧 / first_and_l
 RESOLUTIONS = ["480p", "720p", "1080p"]
 RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"]
 
+#: Ark takes a ratio and a resolution tier, while a caller like
+#: `dsh-short-video-studio` computes a pixel frame per aspect ratio. These two
+#: helpers are the bridge, and they are pure so the mapping is testable.
+_ASPECTS = [
+    ("16:9", 16 / 9),
+    ("9:16", 9 / 16),
+    ("1:1", 1.0),
+    ("4:3", 4 / 3),
+    ("3:4", 3 / 4),
+    ("21:9", 21 / 9),
+]
+
+
+def ratio_for(width: int, height: int, fallback: str = "16:9") -> str:
+    """The Ark ratio closest to the requested pixel frame."""
+    w, h = int(width), int(height)
+    if w <= 0 or h <= 0:
+        return fallback
+    target = w / h
+    return min(_ASPECTS, key=lambda pair: abs(pair[1] - target))[0]
+
+
+def resolution_for(width: int, height: int, fallback: str = "720p") -> str:
+    """The Ark resolution tier implied by the long side of the requested frame."""
+    w, h = int(width), int(height)
+    if w <= 0 or h <= 0:
+        return fallback
+    long_side = max(w, h)
+    if long_side >= 1920:
+        return "1080p"
+    if long_side >= 1280:
+        return "720p"
+    return "480p"
+
+
+def duration_for(length: int, duration: int, fps: int = 24) -> int:
+    """Seconds from either an explicit frame count or the duration widget.
+
+    Ark accepts 4–30 s; a frame count is what flows through a shot table, so it
+    wins when present.
+    """
+    frames = int(length or 0)
+    if frames > 0:
+        seconds = round(frames / max(1, fps))
+    else:
+        seconds = int(duration or 5)
+    return max(4, min(30, seconds))
+
 
 def build_content(
     *,
@@ -95,6 +143,12 @@ class ArkVideo:
                 "resolution": (RESOLUTIONS, {"default": "720p"}),
                 "ratio": (RATIOS, {"default": "16:9"}),
                 "duration": ("INT", {"default": 5, "min": 4, "max": 30}),
+                "width": ("INT", {"default": 0, "min": 0, "max": 4096,
+                                  "tooltip": "0 = 用 ratio；由流程按画布比例推导时填这里（两者都要 >0），会自动映射到最接近的 ratio 与分辨率档。"}),
+                "height": ("INT", {"default": 0, "min": 0, "max": 4096}),
+                "length": ("INT", {"default": 0, "min": 0, "max": 1200,
+                                   "tooltip": "0 = 用 duration（秒）。填帧数时按 fps 换算成秒（4–30 秒）。"}),
+                "fps": ("INT", {"default": 24, "min": 1, "max": 60}),
                 "generate_audio": ("BOOLEAN", {"default": True}),
                 "output_format": (["mp4", "mov"], {"default": "mp4"}),
                 "base_url_override": PROFILE_INPUTS["base_url_override"],
@@ -124,6 +178,10 @@ class ArkVideo:
         resolution: str,
         ratio: str,
         duration: int,
+        width: int,
+        height: int,
+        length: int,
+        fps: int,
         generate_audio: bool,
         output_format: str,
         base_url_override: str,
@@ -146,6 +204,14 @@ class ArkVideo:
             base_url_override=base_url_override,
             api_key_override=api_key_override,
         )
+        if not chosen.is_ark:
+            raise ArkError(
+                f"视频只支持火山方舟入口；profile「{chosen.name}」是 OpenAI 兼容图片接口（{chosen.base_url}）。"
+                "请给视频节点选 standard 或 agent-plan。"
+            )
+        ratio_value = ratio_for(width, height, ratio)
+        resolution_value = resolution_for(width, height, resolution)
+        seconds = duration_for(length, duration, fps)
         payload: dict[str, Any] = {
             "model": model_id(model, custom_model),
             "content": build_content(
@@ -155,9 +221,9 @@ class ArkVideo:
                 last_frame=last_frame,
                 refs=[ref_image1, ref_image2, ref_image3],
             ),
-            "resolution": resolution,
-            "ratio": ratio,
-            "duration": int(duration),
+            "resolution": resolution_value,
+            "ratio": ratio_value,
+            "duration": seconds,
             "generate_audio": bool(generate_audio),
             "watermark": bool(watermark),
         }
@@ -185,9 +251,10 @@ class ArkVideo:
                 "model": payload["model"],
                 "task_id": task_id,
                 "path": str(path),
-                "resolution": resolution,
-                "ratio": ratio,
-                "duration": duration,
+                "resolution": resolution_value,
+                "ratio": ratio_value,
+                "duration": seconds,
+                "requested_frame": [int(width), int(height)],
             },
             ensure_ascii=False,
         )

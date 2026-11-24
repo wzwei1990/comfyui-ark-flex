@@ -20,6 +20,28 @@ DEFAULT_TASK_TIMEOUT = 1_800.0
 DEFAULT_POLL_SECONDS = 2.0
 
 
+def build_multipart(
+    fields: dict[str, str],
+    images: list[tuple[str, bytes, str]],
+    boundary: str,
+) -> bytes:
+    """A `multipart/form-data` body: text fields first, then `image[]` files.
+
+    Split out so the wire format can be tested without a server.
+    """
+    body = bytearray()
+    for name, value in fields.items():
+        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf-8")
+    for filename, blob, mime in images:
+        body += (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="image[]"; filename="{filename}"\r\n'
+            f"Content-Type: {mime}\r\n\r\n"
+        ).encode("utf-8")
+        body += blob + b"\r\n"
+    body += f"--{boundary}--\r\n".encode("utf-8")
+    return bytes(body)
+
+
 class ArkClient:
     """One profile's worth of access to Ark."""
 
@@ -40,6 +62,9 @@ class ArkClient:
         url = f"{self.base_url}{path}"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
+        return self._send(request, url, timeout)
+
+    def _send(self, request: urllib.request.Request, url: str, timeout: float | None) -> dict:
         try:
             with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
                 text = response.read().decode("utf-8", "replace")
@@ -53,11 +78,36 @@ class ArkClient:
         try:
             value = json.loads(text)
         except ValueError:
-            raise ArkError(f"方舟返回的不是 JSON（{url}）：{text[:200]}") from None
+            raise ArkError(f"接口返回的不是 JSON（{url}）：{text[:200]}") from None
         if isinstance(value, dict) and isinstance(value.get("error"), dict):
             # A 200 with an embedded error still means the call failed.
-            raise ArkError(f"方舟返回错误：{json.dumps(value['error'], ensure_ascii=False)[:300]}")
+            raise ArkError(f"接口返回错误：{json.dumps(value['error'], ensure_ascii=False)[:300]}")
         return value if isinstance(value, dict) else {"data": value}
+
+    def images_edits(
+        self,
+        fields: dict[str, str],
+        images: list[tuple[str, bytes, str]],
+        *,
+        timeout: float = 300.0,
+    ) -> dict:
+        """`multipart/form-data` upload to `/images/edits` (strict OpenAI shape).
+
+        Relays that accept data URLs in a JSON body should use `refs_mode: json`
+        instead; this path exists for the real OpenAI edits endpoint.
+        """
+        boundary = f"----arkflex{os.urandom(8).hex()}"
+        body = build_multipart(fields, images, boundary)
+
+        headers = {
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        url = f"{self.base_url}/images/edits"
+        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        return self._send(request, url, timeout)
 
     def post(self, path: str, payload: dict, *, timeout: float | None = None) -> dict:
         return self._request("POST", path, payload, timeout=timeout)

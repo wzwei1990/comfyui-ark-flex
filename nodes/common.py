@@ -65,11 +65,12 @@ def merge_extra(payload: dict, extra_json: str) -> dict:
     return payload
 
 
-def tensor_to_data_url(image: Any, fmt: str = "PNG") -> str:
-    """Encode one ComfyUI IMAGE tensor (1,H,W,C float 0..1) as a data URL.
+def tensor_to_png(image: Any, fmt: str = "PNG") -> tuple[bytes, str]:
+    """Encode one ComfyUI IMAGE tensor (1,H,W,C float 0..1) as (bytes, mime).
 
-    Ark accepts a public URL or a data URL for reference media; local images
-    therefore need no upload endpoint.
+    Two consumers: the JSON path wraps these bytes in a data URL (Ark and most
+    OpenAI-compatible relays accept that), and the multipart path uploads them to
+    `/images/edits` as files.
     """
     try:
         import numpy as np
@@ -84,9 +85,13 @@ def tensor_to_data_url(image: Any, fmt: str = "PNG") -> str:
               else np.clip(array, 0, 1) * 255)
     buffer = io.BytesIO()
     Image.fromarray(np.asarray(pixels, dtype=np.uint8)).save(buffer, format=fmt)
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    mime = "image/png" if fmt.upper() == "PNG" else "image/jpeg"
-    return f"data:{mime};base64,{encoded}"
+    return buffer.getvalue(), ("image/png" if fmt.upper() == "PNG" else "image/jpeg")
+
+
+def tensor_to_data_url(image: Any, fmt: str = "PNG") -> str:
+    """The same bytes as a `data:` URL, which Ark accepts for reference images."""
+    blob, mime = tensor_to_png(image, fmt)
+    return f"data:{mime};base64,{base64.b64encode(blob).decode('ascii')}"
 
 
 def output_dir(kind: str) -> Path:
@@ -122,6 +127,7 @@ __all__ = [
     "client_for",
     "model_id",
     "merge_extra",
+    "tensor_to_png",
     "tensor_to_data_url",
     "output_dir",
     "safe_stem",
