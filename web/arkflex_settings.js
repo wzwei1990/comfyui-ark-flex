@@ -94,7 +94,7 @@ app.registerExtension({
     {
       id: "Ark.StandardApiKey",
       name: "标准 API Key（/api/v3）",
-      category: ["方舟 Ark", "标准 API Key"],
+      category: ["方舟 Ark","密钥","标准 API Key（/api/v3）"],
       type: "text",
       defaultValue: "",
       tooltip: "粘贴即保存到 custom_nodes/ComfyUI-ArkFlex/config.json，字段变成「已保存」标记；再粘一次即覆盖。",
@@ -106,7 +106,7 @@ app.registerExtension({
     {
       id: "Ark.PlanApiKey",
       name: "Agent Plan Key（/api/plan/v3）",
-      category: ["方舟 Ark", "Agent Plan Key"],
+      category: ["方舟 Ark","密钥","Agent Plan Key（/api/plan/v3）"],
       type: "text",
       defaultValue: "",
       tooltip: "Agent Plan 控制台的 Key；与标准入口不通用，粘错入口会得到 403（节点会说明）。",
@@ -118,7 +118,7 @@ app.registerExtension({
     {
       id: "Ark.ImageSurface",
       name: "图片默认接入面",
-      category: ["方舟 Ark", "图片默认接入面"],
+      category: ["方舟 Ark","图片","图片默认接入面"],
       type: "combo",
       options: ARK_SURFACES,
       defaultValue: "standard",
@@ -130,7 +130,7 @@ app.registerExtension({
     {
       id: "Ark.VideoSurface",
       name: "视频默认接入面",
-      category: ["方舟 Ark", "视频默认接入面"],
+      category: ["方舟 Ark","视频","视频默认接入面"],
       type: "combo",
       options: ARK_SURFACES,
       defaultValue: "standard",
@@ -142,7 +142,7 @@ app.registerExtension({
     {
       id: "OpenAI.BaseUrl",
       name: "接口地址（base_url）",
-      category: ["OpenAI 兼容", "接口地址"],
+      category: ["OpenAI 兼容","连接","接口地址（base_url）"],
       type: "text",
       defaultValue: "",
       tooltip: "到版本号为止，例如 https://你的中转/v1 。保存到 config.json 的 openai.apiyi.base_url。",
@@ -153,7 +153,7 @@ app.registerExtension({
     {
       id: "OpenAI.ApiKey",
       name: "API Key",
-      category: ["OpenAI 兼容", "API Key"],
+      category: ["OpenAI 兼容","连接","API Key"],
       type: "text",
       defaultValue: "",
       tooltip: "粘贴即保存进插件目录；字段变成「已保存」标记，不在 ComfyUI 全局设置里留明文。",
@@ -165,7 +165,7 @@ app.registerExtension({
     {
       id: "OpenAI.RefsMode",
       name: "参考图传输方式",
-      category: ["OpenAI 兼容", "参考图传输方式"],
+      category: ["OpenAI 兼容","连接","参考图传输方式"],
       type: "combo",
       options: REFS_MODES,
       defaultValue: "json",
@@ -178,7 +178,7 @@ app.registerExtension({
     {
       id: "OpenAI.DefaultModel",
       name: "默认模型",
-      category: ["OpenAI 兼容", "默认模型"],
+      category: ["OpenAI 兼容","图片","默认模型"],
       type: "text",
       defaultValue: "",
       tooltip: "节点上 model 留空时使用；也可以直接写进节点。",
