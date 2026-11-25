@@ -1,15 +1,25 @@
-"""Two endpoints the Settings dialog talks to.
+"""The two endpoints the Settings dialog talks to.
 
-The key is typed in ComfyUI's Settings dialog, posted here, and written into this
-pack's own `config.json`; the dialog then clears its copy. That keeps the
-secret inside the node folder, so removing the folder removes the key too.
+Keys are typed in ComfyUI's Settings dialog, posted here, and written into this
+pack's own `config.json`; the dialog then shows a marker instead of the secret.
+That keeps the key inside the node folder, so removing the folder removes the
+key too.
 """
 from __future__ import annotations
 
 from . import store
 
-_SETTING_NAMES = ("standard", "agentPlan")
-_DEFAULT_NAMES = ("imageDefault", "videoDefault")
+#: POST body field -> store.write_settings keyword.
+_FIELDS = {
+    "arkStandard": "ark_standard",
+    "arkPlan": "ark_plan",
+    "openaiBaseUrl": "openai_base_url",
+    "openaiApiKey": "openai_api_key",
+    "openaiRefsMode": "openai_refs_mode",
+    "openaiModel": "openai_model",
+    "imageDefault": "image_default",
+    "videoDefault": "video_default",
+}
 
 
 def register_routes() -> bool:
@@ -28,7 +38,7 @@ def register_routes() -> bool:
 
     @server.routes.get("/arkflex/settings")
     async def read_settings(_request):
-        return web.json_response({"ok": True, "keys": store.key_presence(), "defaults": store.read_defaults()})
+        return web.json_response({"ok": True, **store.presence()})
 
     @server.routes.post("/arkflex/settings")
     async def write_settings(request):
@@ -38,31 +48,18 @@ def register_routes() -> bool:
             return web.json_response({"ok": False, "error": "expected a JSON body"}, status=400)
         if not isinstance(body, dict):
             return web.json_response({"ok": False, "error": "expected a JSON object"}, status=400)
-        keys = {}
-        for name in _SETTING_NAMES:
-            value = body.get(name)
+        values = {}
+        for field, keyword in _FIELDS.items():
+            value = body.get(field)
             if value is None:
                 continue
             if not isinstance(value, str):
-                return web.json_response({"ok": False, "error": f"{name} must be a string"}, status=400)
-            keys[name] = value
-        defaults = {}
-        for name in _DEFAULT_NAMES:
-            value = body.get(name)
-            if value is None:
-                continue
-            if not isinstance(value, str):
-                return web.json_response({"ok": False, "error": f"{name} must be a string"}, status=400)
-            defaults[name] = value
-        if not keys and not defaults:
+                return web.json_response({"ok": False, "error": f"{field} must be a string"}, status=400)
+            values[keyword] = value
+        if not values:
             return web.json_response({"ok": False, "error": "nothing to save"}, status=400)
         try:
-            saved = store.write_keys(
-                keys.get("standard"),
-                keys.get("agentPlan"),
-                defaults.get("imageDefault"),
-                defaults.get("videoDefault"),
-            )
+            saved = store.write_settings(**values)
         except ValueError as error:
             return web.json_response({"ok": False, "error": str(error)}, status=400)
         except OSError as error:

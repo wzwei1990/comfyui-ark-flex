@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..ark.config import ARK
 from ..ark.errors import ArkError
 from .common import (
     COMMON_OPTIONS,
@@ -199,14 +200,15 @@ class ArkVideo:
         ref_image3: Any = None,
     ):
         client, chosen = client_for(
-            "video",
+            ARK,
+            kind="video",
             profile=profile,
             base_url_override=base_url_override,
             api_key_override=api_key_override,
         )
         if not chosen.is_ark:
             raise ArkError(
-                f"视频只支持火山方舟入口；profile「{chosen.name}」是 OpenAI 兼容图片接口（{chosen.base_url}）。"
+                f"视频只支持火山方舟入口；「{chosen.name}」不是方舟连接（{chosen.base_url}）。"
                 "请给视频节点选 standard 或 agent-plan。"
             )
         ratio_value = ratio_for(width, height, ratio)

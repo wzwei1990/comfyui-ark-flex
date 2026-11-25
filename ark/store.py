@@ -1,13 +1,13 @@
-"""Where the key actually lives: inside this pack's own folder.
+"""Persistence for the Settings dialog: one file, inside this pack's folder.
 
-ComfyUI has no uninstall hook, so anything kept in ComfyUI's global
-`comfy.settings.json` survives the removal of the node folder — you delete the
-pack and a plaintext key is still sitting in the user settings file.
+ComfyUI has no uninstall hook, so anything kept in `comfy.settings.json` would
+outlive deleting the node folder. The dialog therefore only *posts* here; this
+module writes `custom_nodes/ComfyUI-ArkFlex/config.json`, and the dialog then
+shows a saved marker instead of the secret. Uninstalling removes the key with
+the folder.
 
-So the Settings dialog is only an input surface: the web extension posts what
-you type to `/arkflex/settings`, this module writes it into
-`custom_nodes/ComfyUI-ArkFlex/config.json`, and the extension then clears the
-ComfyUI-side copy. Uninstalling is literally deleting the folder.
+The file is split the same way the dialog is: an `ark` section and an `openai`
+section, so a relay's address cannot be typed into an Ark field.
 """
 from __future__ import annotations
 
@@ -17,16 +17,18 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-NODE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_PATH = NODE_DIR / "config.json"
+from .config import (
+    ARK_PLAN,
+    ARK_STANDARD,
+    CONFIG_PATH,
+    OPENAI_PROFILE,
+    REFS_MODES,
+    migrate,
+    openai_endpoints,
+    ark_endpoints,
+)
 
-STANDARD = "standard"
-AGENT_PLAN = "agent-plan"
-
-PROFILE_URLS = {
-    STANDARD: "https://ark.cn-beijing.volces.com/api/v3",
-    AGENT_PLAN: "https://ark.cn-beijing.volces.com/api/plan/v3",
-}
+NODE_DIR = CONFIG_PATH.parent
 
 
 def config_path() -> Path:
@@ -60,81 +62,112 @@ def _write_atomic(path: Path, value: dict[str, Any]) -> None:
         raise
 
 
-def write_keys(
-    standard: str | None = None,
-    agent_plan: str | None = None,
+def _section(config: dict[str, Any], name: str) -> dict[str, Any]:
+    value = config.get(name)
+    if not isinstance(value, dict):
+        value = {}
+        config[name] = value
+    return value
+
+
+def write_settings(
+    *,
+    ark_standard: str | None = None,
+    ark_plan: str | None = None,
+    openai_base_url: str | None = None,
+    openai_api_key: str | None = None,
+    openai_refs_mode: str | None = None,
+    openai_model: str | None = None,
     image_default: str | None = None,
     video_default: str | None = None,
     path: Path | None = None,
 ) -> dict[str, Any]:
-    """Store keys and/or the per-kind default surface in `config.json`.
+    """Store any subset of the settings; `None` leaves a value alone.
 
-    `None` means "don't touch this one"; an empty string clears a key. Defaults
-    must name a known surface — a typo there would silently send images to the
-    wrong URL, so it is rejected instead. Returns presence plus the defaults,
-    never the secrets.
+    An empty string clears a value. Defaults must name a configured profile — a
+    typo there would quietly send calls to the wrong surface, so it is rejected
+    instead of stored.
     """
     target = Path(path) if path is not None else config_path()
-    for label, value in (("image", image_default), ("video", video_default)):
-        if value is not None and value not in PROFILE_URLS:
-            raise ValueError(f"defaults.{label} must be one of {', '.join(PROFILE_URLS)}")
+    config = migrate(read_config(target))
 
-    config = read_config(target)
-    profiles = config.get("profiles")
-    if not isinstance(profiles, dict):
-        profiles = {}
-        config["profiles"] = profiles
+    if openai_refs_mode is not None and openai_refs_mode not in REFS_MODES:
+        raise ValueError(f"refs_mode 只能是 {' / '.join(REFS_MODES)}")
 
-    for name, value in ((STANDARD, standard), (AGENT_PLAN, agent_plan)):
-        if value is None:
-            continue
-        entry = profiles.get(name)
+    if ark_standard is not None or ark_plan is not None:
+        section = _section(config, "ark")
+        for name, value in ((ARK_STANDARD, ark_standard), (ARK_PLAN, ark_plan)):
+            if value is None:
+                continue
+            entry = section.get(name)
+            if not isinstance(entry, dict):
+                entry = {}
+                section[name] = entry
+            text = value.strip()
+            if text:
+                entry["api_key"] = text
+            else:
+                entry.pop("api_key", None)
+
+    if any(v is not None for v in (openai_base_url, openai_api_key, openai_refs_mode, openai_model)):
+        section = _section(config, "openai")
+        entry = section.get(OPENAI_PROFILE)
         if not isinstance(entry, dict):
-            entry = {"base_url": PROFILE_URLS[name]}
-            profiles[name] = entry
-        entry.setdefault("base_url", PROFILE_URLS[name])
-        text = value.strip()
-        if text:
-            entry["api_key"] = text
-        else:
-            entry.pop("api_key", None)
+            entry = {}
+            section[OPENAI_PROFILE] = entry
+        for key, value in (
+            ("base_url", openai_base_url),
+            ("api_key", openai_api_key),
+            ("refs_mode", openai_refs_mode),
+            ("model", openai_model),
+        ):
+            if value is None:
+                continue
+            text = value.strip()
+            if key == "refs_mode":
+                entry["refs_mode"] = text or "json"
+            elif text:
+                entry[key] = text
+            else:
+                entry.pop(key, None)
 
-    defaults = config.get("defaults")
-    if not isinstance(defaults, dict):
-        defaults = {}
-        config["defaults"] = defaults
-    for label, value in (("image", image_default), ("video", video_default)):
-        if value is not None:
-            defaults[label] = value
-    defaults.setdefault("image", STANDARD)
-    defaults.setdefault("video", STANDARD)
+    if image_default is not None or video_default is not None:
+        known = set(ark_endpoints(config)) | set(openai_endpoints(config))
+        section = _section(config, "defaults")
+        for kind, value in (("image", image_default), ("video", video_default)):
+            if value is None:
+                continue
+            text = value.strip()
+            if text and text not in known:
+                raise ValueError(f"defaults.{kind} 必须是已配置的 profile（{', '.join(sorted(known))}）")
+            section[kind] = text or ARK_STANDARD
 
     _write_atomic(target, config)
-    return {"keys": key_presence(target), "defaults": read_defaults(target)}
+    return presence(target)
 
 
-def read_defaults(path: Path | None = None) -> dict[str, str]:
-    """The per-kind default surface names, with the built-in fallback filled in."""
-    defaults = read_config(path).get("defaults")
-    out = {"image": STANDARD, "video": STANDARD}
-    if isinstance(defaults, dict):
-        for kind in ("image", "video"):
-            value = defaults.get(kind)
-            if isinstance(value, str) and value in PROFILE_URLS:
-                out[kind] = value
-    return out
+def presence(path: Path | None = None) -> dict[str, Any]:
+    """What the dialog can show without echoing a secret."""
+    config = migrate(read_config(path))
+    ark = ark_endpoints(config)
+    openai = openai_endpoints(config)
+    entry = openai.get(OPENAI_PROFILE)
+    return {
+        "ark": {
+            "standard": bool(ark.get(ARK_STANDARD) and ark[ARK_STANDARD].api_key),
+            "agentPlan": bool(ark.get(ARK_PLAN) and ark[ARK_PLAN].api_key),
+        },
+        "openai": {
+            "baseUrl": entry.base_url if entry else "",
+            "apiKey": bool(entry and entry.api_key),
+            "refsMode": entry.refs_mode if entry else "json",
+            "model": entry.model if entry else "",
+        },
+        "defaults": {
+            "image": (config.get("defaults") or {}).get("image") or ARK_STANDARD,
+            "video": (config.get("defaults") or {}).get("video") or ARK_STANDARD,
+        },
+    }
 
 
-def key_presence(path: Path | None = None) -> dict[str, bool]:
-    """Whether each surface has a key, without returning the key itself."""
-    profiles = read_config(path).get("profiles")
-    out = {"standard": False, "agentPlan": False}
-    if isinstance(profiles, dict):
-        for name, label in ((STANDARD, "standard"), (AGENT_PLAN, "agentPlan")):
-            entry = profiles.get(name)
-            if isinstance(entry, dict) and isinstance(entry.get("api_key"), str) and entry["api_key"].strip():
-                out[label] = True
-    return out
-
-
-__all__ = ["config_path", "read_config", "write_keys", "key_presence", "read_defaults", "NODE_DIR", "PROFILE_URLS"]
+__all__ = ["config_path", "read_config", "write_settings", "presence", "NODE_DIR"]

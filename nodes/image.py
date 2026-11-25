@@ -1,9 +1,10 @@
-"""Image generation: Volcengine Ark (Seedream) and OpenAI-compatible endpoints.
+"""Image generation, split by provider.
 
-Both dialects share `/images/generations` with the same handful of fields —
-Ark's own image API is OpenAI-compatible — so one node covers Ark, Agent Plan and
-third-party relays. What differs is where reference images go: data URLs in the
-body (Ark, most relays) or a real multipart upload to `/images/edits`.
+`ArkImage` talks to Volcengine Ark (Seedream) and only offers Ark surfaces;
+`OpenAIImage` talks to any OpenAI-compatible image endpoint and takes its
+connection from the plugin settings (`OpenAI 兼容 → 连接`), with per-node
+overrides. They share the payload builder, the response decoder and the
+multipart `/images/edits` path — but no dropdown mixes the two providers.
 """
 from __future__ import annotations
 
@@ -11,8 +12,10 @@ import base64
 import io
 import json
 import urllib.request
+from dataclasses import replace
 from typing import Any
 
+from ..ark.config import ARK, CUSTOM, OPENAI, profile_names, resolve
 from ..ark.errors import ArkError
 from .common import (
     COMMON_OPTIONS,
@@ -44,6 +47,8 @@ SIZES = [
     "1600x1600 (1:1)",
 ]
 
+REFS_MODE_OPTIONS = ["跟随设置 / follow", "json", "multipart", "none"]
+
 
 def size_value(label: str) -> str:
     """`"1280x720 (16:9)"` -> `"1280x720"`."""
@@ -64,7 +69,7 @@ def resolve_size(label: str, width: int, height: int, *, kind: str = "ark") -> s
     """
     w, h = int(width), int(height)
     if w > 0 and h > 0:
-        if kind == "ark" and (w % 16 or h % 16):
+        if kind == ARK and (w % 16 or h % 16):
             raise ArkError(f"火山方舟要求宽高为 16 的倍数（现在是 {w}x{h}）；可用画布比例推导的尺寸。")
         if w < 64 or h < 64:
             raise ArkError(f"尺寸太小：{w}x{h}")
@@ -82,25 +87,20 @@ def payload_for(
     watermark: bool | None = None,
     seed: int = -1,
     refs: list[Any] | None = None,
-    sequential: bool = False,
+    provider: str = ARK,
 ) -> dict[str, Any]:
     """The request body for one image call (JSON dialect).
 
-    `watermark` is an Ark field; it is omitted when None so an OpenAI endpoint
-    never sees a parameter it may reject.
+    `watermark` is an Ark field and `response_format` is an Ark/relay field; both
+    are left out for an OpenAI endpoint, which may reject unknown fields.
     """
-    body: dict[str, Any] = {
-        "model": model,
-        "prompt": prompt,
-        "size": size,
-        "response_format": "url",
-    }
+    body: dict[str, Any] = {"model": model, "prompt": prompt, "size": size}
+    if provider == ARK:
+        body["response_format"] = "url"
     if watermark is not None:
         body["watermark"] = bool(watermark)
     if int(seed) >= 0:
         body["seed"] = int(seed)
-    if sequential:
-        body["sequential_image_generation"] = "auto"
     usable = [image for image in (refs or []) if image is not None]
     if usable:
         from .common import tensor_to_data_url
@@ -156,8 +156,51 @@ def blobs_to_tensor(blobs: list[bytes]):
     return torch.cat(frames, dim=0)
 
 
+def _generate(
+    client,
+    endpoint,
+    *,
+    prompt: str,
+    model: str,
+    size: str,
+    count: int,
+    refs: list[Any],
+    extra_json: str,
+    watermark: bool | None,
+    timeout: int,
+    seed: int,
+) -> list[bytes]:
+    """Run one call (or `count` calls), returning the raw image bytes."""
+    if refs and endpoint.refs_mode == "none":
+        raise ArkError(f"连接「{endpoint.name}」不允许参考图（refs_mode=none）。")
+    blobs: list[bytes] = []
+    if refs and endpoint.refs_mode == "multipart":
+        fields = {"model": model, "prompt": prompt, "size": size, "n": str(count)}
+        files = [(f"ref{index}.png", *tensor_to_png(image)) for index, image in enumerate(refs)]
+        result = client.images_edits(fields, files, timeout=float(timeout))
+        blobs.extend(decode_images(result))
+        return blobs
+    for index in range(count):
+        # Ask N times instead of relying on a sequential flag only some Seedream
+        # versions honour; the seed steps so the calls differ.
+        call_seed = int(seed) + index if int(seed) >= 0 else -1
+        body = payload_for(
+            model=model,
+            prompt=prompt,
+            size=size,
+            watermark=watermark,
+            seed=call_seed,
+            refs=refs,
+            provider=endpoint.provider,
+        )
+        body = merge_extra(body, extra_json)
+        result = client.post("/images/generations", body, timeout=float(timeout))
+        blobs.extend(decode_images(result))
+    return blobs
+
+
 class ArkImage:
-    """Image generation through one profile: Ark, Agent Plan, or any OpenAI-compatible API."""
+    """Image generation on Volcengine Ark (Seedream), either official surface."""
 
     CATEGORY = "Ark / 火山方舟"
     FUNCTION = "generate"
@@ -213,67 +256,156 @@ class ArkImage:
         image3: Any = None,
         image4: Any = None,
     ):
-        client, chosen = client_for(
-            "image",
+        client, endpoint = client_for(
+            ARK,
+            kind="image",
             profile=profile,
             base_url_override=base_url_override,
             api_key_override=api_key_override,
         )
         model_name = model_id(model, custom_model)
-        pixels = resolve_size(size, width, height, kind=chosen.kind)
-        count = max(1, int(max_images))
+        pixels = resolve_size(size, width, height, kind=ARK)
         refs = [image for image in (image1, image2, image3, image4) if image is not None]
-        if refs and chosen.refs_mode == "none":
-            raise ArkError(f"profile「{chosen.name}」不允许参考图（refs_mode=none）。")
-        if chosen.kind == "ark":
-            watermark_value: bool | None = bool(watermark)
-        else:
-            # An OpenAI-compatible endpoint may reject unknown fields; leave the
-            # Ark-only watermark out unless the user put it into extra_json.
-            watermark_value = bool(watermark) if "watermark" in (extra_json or "") else None
-
-        blobs: list[bytes] = []
-        if refs and chosen.refs_mode == "multipart":
-            fields = {
-                "model": model_name,
-                "prompt": prompt,
-                "size": pixels,
-                "n": str(count),
-            }
-            files = [(f"ref{index}.png", *tensor_to_png(image)) for index, image in enumerate(refs)]
-            result = client.images_edits(fields, files, timeout=float(timeout))
-            blobs.extend(decode_images(result))
-        else:
-            for index in range(count):
-                # Ask N times instead of relying on a sequential-mode flag that only
-                # some Seedream versions honour; the seed steps so the calls differ.
-                call_seed = int(seed) + index if int(seed) >= 0 else -1
-                body = payload_for(
-                    model=model_name,
-                    prompt=prompt,
-                    size=pixels,
-                    watermark=watermark_value,
-                    seed=call_seed,
-                    refs=refs,
-                )
-                body = merge_extra(body, extra_json)
-                result = client.post("/images/generations", body, timeout=float(timeout))
-                blobs.extend(decode_images(result))
-
-        images = blobs_to_tensor(blobs)
+        if refs and endpoint.refs_mode == "none":
+            raise ArkError(f"profile「{endpoint.name}」不允许参考图（refs_mode=none）。")
+        blobs = _generate(
+            client,
+            endpoint,
+            prompt=prompt,
+            model=model_name,
+            size=pixels,
+            count=max(1, int(max_images)),
+            refs=refs,
+            extra_json=extra_json,
+            watermark=bool(watermark),
+            timeout=timeout,
+            seed=seed,
+        )
         info = json.dumps(
             {
-                "profile": chosen.name,
-                "kind": chosen.kind,
-                "refs_mode": chosen.refs_mode,
-                "base_url": chosen.base_url,
+                "provider": ARK,
+                "profile": endpoint.name,
+                "base_url": endpoint.base_url,
                 "model": model_name,
                 "size": pixels,
                 "count": len(blobs),
             },
             ensure_ascii=False,
         )
-        return (images, info)
+        return (blobs_to_tensor(blobs), info)
 
 
-__all__ = ["ArkImage", "IMAGE_MODELS", "SIZES", "payload_for", "decode_images", "size_value", "resolve_size"]
+class OpenAIImage:
+    """Image generation on any OpenAI-compatible endpoint.
+
+    The connection comes from the plugin settings (`OpenAI 兼容 → 连接`); the node
+    only carries per-call overrides, so no key has to be embedded in a workflow.
+    """
+
+    CATEGORY = "Ark / 火山方舟"
+    FUNCTION = "generate"
+    RETURN_NAMES = ("images", "info")
+    RETURN_TYPES = ("IMAGE", "STRING")
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        from ..ark.config import loaded_config, openai_endpoints
+
+        known = openai_endpoints(loaded_config())
+        entry = next(iter(known.values()), None)
+        base = entry.base_url if entry else ""
+        model = entry.model if entry and entry.model else ""
+        return {
+            "required": {
+                "prompt": ("STRING", {"default": "", "multiline": True}),
+                "model": ("STRING", {"default": model, "tooltip": "接口方的模型名，例如 gpt-image-2.5-sunburst-vip。"}),
+                "size": ("STRING", {"default": "1024x1024", "tooltip": "也常写作 1024x1536；部分接口只接受固定尺寸。"}),
+                "width": ("INT", {"default": 0, "min": 0, "max": 4096,
+                                  "tooltip": "两者都 >0 时覆盖 size（由画布比例推导时用）。"}),
+                "height": ("INT", {"default": 0, "min": 0, "max": 4096}),
+                "max_images": ("INT", {"default": 1, "min": 1, "max": 4}),
+                "base_url": ("STRING", {"default": base, "tooltip": "留空 = 用插件设置里的 OpenAI 兼容地址。"}),
+                "api_key": ("STRING", {"default": "", "tooltip": "留空 = 用插件设置里的 Key；填了只对本节点生效。"}),
+                "refs_mode": (REFS_MODE_OPTIONS, {"default": REFS_MODE_OPTIONS[0],
+                                                  "tooltip": "参考图怎么送：跟随设置 / json（data URL）/ multipart（/images/edits 上传）/ none。"}),
+                "seed": COMMON_OPTIONS["seed"],
+                "timeout": COMMON_OPTIONS["timeout"],
+                "extra_json": COMMON_OPTIONS["extra_json"],
+            },
+            "optional": {
+                "image1": ("IMAGE",),
+                "image2": ("IMAGE",),
+                "image3": ("IMAGE",),
+                "image4": ("IMAGE",),
+            },
+        }
+
+    def generate(
+        self,
+        prompt: str,
+        model: str,
+        size: str,
+        width: int,
+        height: int,
+        max_images: int,
+        base_url: str,
+        api_key: str,
+        refs_mode: str,
+        seed: int,
+        timeout: int,
+        extra_json: str,
+        image1: Any = None,
+        image2: Any = None,
+        image3: Any = None,
+        image4: Any = None,
+    ):
+        client, endpoint = client_for(
+            OPENAI,
+            kind="image",
+            base_url_override=base_url,
+            api_key_override=api_key,
+        )
+        mode = refs_mode if refs_mode in ("json", "multipart", "none") else endpoint.refs_mode
+        endpoint = replace(endpoint, refs_mode=mode)
+        model_name = model_id(model, "")
+        pixels = resolve_size(size, width, height, kind=OPENAI)
+        refs = [image for image in (image1, image2, image3, image4) if image is not None]
+        blobs = _generate(
+            client,
+            endpoint,
+            prompt=prompt,
+            model=model_name,
+            size=pixels,
+            count=max(1, int(max_images)),
+            refs=refs,
+            extra_json=extra_json,
+            watermark=None,
+            timeout=timeout,
+            seed=seed,
+        )
+        info = json.dumps(
+            {
+                "provider": OPENAI,
+                "profile": endpoint.name,
+                "base_url": endpoint.base_url,
+                "refs_mode": endpoint.refs_mode,
+                "model": model_name,
+                "size": pixels,
+                "count": len(blobs),
+            },
+            ensure_ascii=False,
+        )
+        return (blobs_to_tensor(blobs), info)
+
+
+__all__ = [
+    "ArkImage",
+    "OpenAIImage",
+    "IMAGE_MODELS",
+    "SIZES",
+    "REFS_MODE_OPTIONS",
+    "payload_for",
+    "decode_images",
+    "size_value",
+    "resolve_size",
+]

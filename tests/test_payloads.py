@@ -141,6 +141,16 @@ class PayloadTest(unittest.TestCase):
         body = image_module.payload_for(model="m", prompt="p", size="1024x1024", watermark=False, seed=-1)
         self.assertIn("watermark", body)
 
+    def test_ark_only_fields_never_reach_a_relay(self):
+        ark = image_module.payload_for(model="m", prompt="p", size="1024x1024", watermark=False, seed=-1)
+        self.assertEqual(ark["response_format"], "url")
+        relay = image_module.payload_for(
+            model="m", prompt="p", size="1024x1024", watermark=None, seed=-1, provider="openai"
+        )
+        self.assertNotIn("response_format", relay)
+        self.assertNotIn("watermark", relay)
+        self.assertEqual(relay["size"], "1024x1024")
+
     def test_image_payload_includes_references_as_data_urls(self):
         body = image_module.payload_for(
             model="m", prompt="p", size="1024x1024", watermark=True, seed=-1, refs=[TensorStub(), None]

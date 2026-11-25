@@ -1,24 +1,21 @@
 {
-  "_comment": "Copy to config.json and fill in the keys you actually have. `kind` is `ark` (Volcengine Ark, the two surfaces below) or `openai` (any OpenAI-compatible image API, e.g. a third-party relay). `refs_mode` decides how reference images travel: `json` (data URLs in the body — Ark and most relays), `multipart` (a real /images/edits upload), or `none`.",
-  "profiles": {
+  "_comment": "Copy to config.json if you prefer editing it by hand; the Settings dialog writes the same file. Two sections: `ark` is Volcengine Ark (the two official surfaces, keys not interchangeable), `openai` is any OpenAI-compatible image endpoint. refs_mode decides how reference images travel: json (data URLs in the body — Ark and most relays), multipart (a real /images/edits upload), none.",
+  "ark": {
     "standard": {
-      "label": "标准 API / Standard",
-      "kind": "ark",
       "base_url": "https://ark.cn-beijing.volces.com/api/v3",
       "api_key": ""
     },
     "agent-plan": {
-      "label": "Agent Plan",
-      "kind": "ark",
       "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
       "api_key": ""
-    },
-    "openai-relay": {
-      "label": "第三方 OpenAI 兼容（示例）",
-      "kind": "openai",
+    }
+  },
+  "openai": {
+    "apiyi": {
       "base_url": "https://example.invalid/v1",
       "api_key": "",
-      "refs_mode": "json"
+      "refs_mode": "json",
+      "model": ""
     }
   },
   "defaults": {

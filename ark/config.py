@@ -1,23 +1,19 @@
-"""Where a request goes: base URL + API key, resolved per call, plus its dialect.
+"""Where a request goes, split into two provider namespaces.
 
-A *profile* is a named pair of (base_url, api_key) with two hints:
+Volcengine Ark and OpenAI-compatible relays are different products that happen to
+share a request shape. Keeping them in one profile list made every dropdown a
+mixed bag, so `config.json` has two sections:
 
-- `kind`: `ark` (Volcengine Ark) or `openai` (any OpenAI-compatible image API —
-  Ark's own image API is one of them, as are the third-party relays that keep
-  the deprecated `comfyui-byokey` pack alive today). The wire format is the same
-  `/images/generations` shape either way; the difference is how reference images
-  travel and which error text makes sense.
-- `refs_mode`: `json` (data URLs in the body, what Ark and most relays accept),
-  `multipart` (a real OpenAI `/images/edits` upload), or `none` (no references).
+    ark    : standard / agent-plan (the two official surfaces, keys not interchangeable)
+    openai : any OpenAI-compatible image endpoint (base_url + key + refs_mode + model)
 
-Ark's two surfaces differ only in the base URL, and a key from one is rejected by
-the other (403), which is why image and video pick their profile independently.
+Resolution order, first hit wins:
 
-Resolution order for each field, first hit wins:
+    node override  ->  section entry  ->  ARK_API_KEY (ark only)  ->  built-in default
 
-    node override  ->  profile entry  ->  ARK_API_KEY  ->  built-in default
-
-Only the two official Ark base URLs are built in; keys never are.
+Only the two official Ark base URLs are built in; keys never are. A `profiles`
+block from an earlier version is migrated on read, so nobody has to re-enter a
+key by hand.
 """
 from __future__ import annotations
 
@@ -27,31 +23,37 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-#: The standard Ark surface.
 STANDARD_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-#: The Agent Plan surface (same request bodies, its own key).
 AGENT_PLAN_BASE_URL = "https://ark.cn-beijing.volces.com/api/plan/v3"
+
+ARK_STANDARD = "standard"
+ARK_PLAN = "agent-plan"
+ARK_BASE_URLS = {ARK_STANDARD: STANDARD_BASE_URL, ARK_PLAN: AGENT_PLAN_BASE_URL}
+
+#: The single OpenAI-compatible connection the Settings dialog edits.
+OPENAI_PROFILE = "apiyi"
+
+CUSTOM = "自定义 / custom"
+ARK = "ark"
+OPENAI = "openai"
+REFS_MODES = ("json", "multipart", "none")
 
 NODE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = NODE_DIR / "config.json"
 EXAMPLE_PATH = NODE_DIR / "config.example.json"
 
-CUSTOM = "自定义 / custom"
-
-KINDS = ("ark", "openai")
-REFS_MODES = ("json", "multipart", "none")
-
 
 @dataclass(frozen=True)
-class Profile:
-    """One (base_url, api_key) pair, by name, plus how to talk to it."""
+class Endpoint:
+    """One place to send a request, with the dialect it speaks."""
 
     name: str
+    provider: str
     base_url: str
     api_key: str
     label: str = ""
-    kind: str = "ark"
     refs_mode: str = "json"
+    model: str = ""
 
     @property
     def display(self) -> str:
@@ -59,7 +61,7 @@ class Profile:
 
     @property
     def is_ark(self) -> bool:
-        return self.kind == "ark"
+        return self.provider == ARK
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -76,59 +78,117 @@ def raw_config() -> dict[str, Any]:
     return _read_json(CONFIG_PATH)
 
 
-def _kind(value: Any) -> str:
-    return value if isinstance(value, str) and value in KINDS else "ark"
+def migrate(config: dict[str, Any]) -> dict[str, Any]:
+    """Turn an older `profiles` block (with `kind`) into the two sections.
 
-
-def _refs_mode(value: Any, kind: str) -> str:
-    if isinstance(value, str) and value in REFS_MODES:
-        return value
-    return "json" if kind == "ark" else "json"
-
-
-def profiles(config: dict[str, Any] | None = None) -> dict[str, Profile]:
-    """Every configured profile, plus the two official Ark surfaces as defaults.
-
-    A `config.json` entry wins over the built-in one of the same name, so a user
-    can pre-fill keys without repeating the URLs.
+    Read-only: the file is rewritten on the next save. Ark entries keep their
+    names (so `standard` / `agent-plan` land where the built-ins expect them) and
+    everything `kind: openai` moves under `openai`.
     """
-    cfg = raw_config() if config is None else config
-    out: dict[str, Profile] = {
-        "standard": Profile("standard", STANDARD_BASE_URL, "", "标准 API / Standard"),
-        "agent-plan": Profile("agent-plan", AGENT_PLAN_BASE_URL, "", "Agent Plan"),
+    if "ark" in config or "openai" in config:
+        return config
+    old = config.get("profiles")
+    if not isinstance(old, dict) or not old:
+        return config
+    ark: dict[str, Any] = {}
+    openai: dict[str, Any] = {}
+    for name, entry in old.items():
+        if not isinstance(entry, dict) or not isinstance(name, str):
+            continue
+        kind = entry.get("kind") if entry.get("kind") in (ARK, OPENAI) else (
+            ARK if name in ARK_BASE_URLS else OPENAI
+        )
+        base = entry.get("base_url") if isinstance(entry.get("base_url"), str) else ""
+        key = entry.get("api_key") if isinstance(entry.get("api_key"), str) else ""
+        if kind == ARK:
+            ark[name] = {"base_url": base, "api_key": key}
+        else:
+            mode = entry.get("refs_mode") if entry.get("refs_mode") in REFS_MODES else "json"
+            openai[name] = {
+                "base_url": base,
+                "api_key": key,
+                "refs_mode": mode,
+                "model": entry.get("model") if isinstance(entry.get("model"), str) else "",
+            }
+    out = dict(config)
+    if ark:
+        out["ark"] = ark
+    if openai:
+        out["openai"] = openai
+    return out
+
+
+def loaded_config() -> dict[str, Any]:
+    """`config.json`, migrated in memory when it still has the old shape."""
+    return migrate(raw_config())
+
+
+def ark_endpoints(config: dict[str, Any] | None = None) -> dict[str, Endpoint]:
+    """The two official surfaces, plus anything extra the user added under `ark`."""
+    cfg = loaded_config() if config is None else migrate(config)
+    out: dict[str, Endpoint] = {
+        ARK_STANDARD: Endpoint(ARK_STANDARD, ARK, STANDARD_BASE_URL, "", "标准 API / Standard"),
+        ARK_PLAN: Endpoint(ARK_PLAN, ARK, AGENT_PLAN_BASE_URL, "", "Agent Plan"),
     }
-    entries = cfg.get("profiles")
-    if isinstance(entries, dict):
-        for name, value in entries.items():
-            if not isinstance(value, dict) or not isinstance(name, str):
+    section = cfg.get("ark")
+    if isinstance(section, dict):
+        for name, value in section.items():
+            if not isinstance(name, str) or not isinstance(value, dict):
                 continue
             base = value.get("base_url")
             key = value.get("api_key")
-            label = value.get("label")
             if not isinstance(base, str) or not base.strip():
-                continue
-            kind = _kind(value.get("kind"))
-            out[name] = Profile(
+                base = ARK_BASE_URLS.get(name, STANDARD_BASE_URL)
+            out[name] = Endpoint(
                 name,
+                ARK,
                 base.strip().rstrip("/"),
                 key.strip() if isinstance(key, str) else "",
-                label if isinstance(label, str) and label else name,
-                kind,
-                _refs_mode(value.get("refs_mode"), kind),
+                "标准 API / Standard" if name == ARK_STANDARD else ("Agent Plan" if name == ARK_PLAN else name),
             )
     return out
 
 
-def profile_names(config: dict[str, Any] | None = None) -> list[str]:
+def openai_endpoints(config: dict[str, Any] | None = None) -> dict[str, Endpoint]:
+    """Every OpenAI-compatible connection under `openai`."""
+    cfg = loaded_config() if config is None else migrate(config)
+    out: dict[str, Endpoint] = {}
+    section = cfg.get("openai")
+    if not isinstance(section, dict):
+        return out
+    for name, value in section.items():
+        if not isinstance(name, str) or not isinstance(value, dict):
+            continue
+        base = value.get("base_url")
+        if not isinstance(base, str) or not base.strip():
+            continue
+        mode = value.get("refs_mode") if value.get("refs_mode") in REFS_MODES else "json"
+        out[name] = Endpoint(
+            name,
+            OPENAI,
+            base.strip().rstrip("/"),
+            (value.get("api_key") or "").strip() if isinstance(value.get("api_key"), str) else "",
+            name,
+            mode,
+            value.get("model").strip() if isinstance(value.get("model"), str) and value.get("model").strip() else "",
+        )
+    return out
+
+
+def endpoints(provider: str, config: dict[str, Any] | None = None) -> dict[str, Endpoint]:
+    return ark_endpoints(config) if provider == ARK else openai_endpoints(config)
+
+
+def profile_names(provider: str, config: dict[str, Any] | None = None) -> list[str]:
     """Names for a COMBO widget, custom last."""
-    return [*profiles(config).keys(), CUSTOM]
+    return [*endpoints(provider, config).keys(), CUSTOM]
 
 
 def defaults(config: dict[str, Any] | None = None) -> dict[str, str]:
-    """The per-kind default profile name (`defaults.image` / `defaults.video`)."""
-    cfg = raw_config() if config is None else config
+    """`defaults.image` / `defaults.video`: which profile name a new call prefers."""
+    cfg = loaded_config() if config is None else migrate(config)
     raw = cfg.get("defaults")
-    out = {"image": "standard", "video": "standard"}
+    out = {"image": ARK_STANDARD, "video": ARK_STANDARD}
     if isinstance(raw, dict):
         for kind in ("image", "video"):
             value = raw.get(kind)
@@ -137,54 +197,77 @@ def defaults(config: dict[str, Any] | None = None) -> dict[str, str]:
     return out
 
 
+def first_model(provider: str, config: dict[str, Any] | None = None) -> str:
+    """A default model name for a free-text model widget."""
+    if provider != OPENAI:
+        return ""
+    known = openai_endpoints(config)
+    for endpoint in known.values():
+        if endpoint.model:
+            return endpoint.model
+    return ""
+
+
 def resolve(
-    kind: str,
+    provider: str,
     *,
     profile: str | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
+    kind: str = "image",
     config: dict[str, Any] | None = None,
-) -> Profile:
-    """The profile a single node call should use.
+) -> Endpoint:
+    """The endpoint one node call should use.
 
-    `kind` here is `image` or `video` and only selects the fallback default; the
-    profile itself is whatever the node asked for. An explicit base URL override
-    always wins, and a key override applies to the resolved profile.
+    `kind` (`image` / `video`) only picks the fallback when the node names no
+    profile; `provider` decides which section the names are looked up in.
     """
-    cfg = raw_config() if config is None else config
-    known = profiles(cfg)
-    chosen = (profile or "").strip() or defaults(cfg).get(kind, "standard")
+    cfg = loaded_config() if config is None else migrate(config)
+    known = endpoints(provider, cfg)
+    chosen = (profile or "").strip() or defaults(cfg).get(kind, ARK_STANDARD)
     if chosen == CUSTOM or chosen not in known:
-        # The custom choice must carry its own URL; without one, fall back to the
-        # kind's default profile rather than guessing.
+        entry = Endpoint(CUSTOM, provider, "", "", "自定义 / Custom")
         if chosen != CUSTOM:
-            chosen = defaults(cfg).get(kind, "standard")
-        entry = Profile(CUSTOM, "", "", "自定义 / Custom")
+            # The default may name a profile of the *other* provider (e.g.
+            # `image: apiyi` while this node is an Ark node): fall back to this
+            # provider's own first entry instead of sending an Ark key to a relay.
+            fallback = chosen if chosen in known else next(iter(known), CUSTOM)
+            entry = known.get(fallback, entry)
     else:
         entry = known[chosen]
 
     base = (base_url_override or "").strip() or entry.base_url
-    if not base:
-        # A custom choice without its own URL is the kind's default profile,
-        # not a silent hop to the standard surface.
-        fallback = defaults(cfg).get(kind, "standard")
-        base = known.get(fallback, Profile(fallback, STANDARD_BASE_URL, "")).base_url
+    if not base and provider == ARK:
+        base = ARK_BASE_URLS.get(chosen, STANDARD_BASE_URL)
     base = base.rstrip("/")
 
     key = (api_key_override or "").strip() or entry.api_key
-    if not key:
-        # The Settings dialog (web/arkflex_settings.js writes comfy.settings.json)
-        # sits between the profile and the environment: it is per-machine state
-        # a user can fill without touching a file.
-        from .settings import key_for_profile
-
-        key = key_for_profile(entry.name, base)
-    if not key:
+    if not key and provider == ARK:
         key = os.environ.get("ARK_API_KEY", "").strip()
-    if not key and entry.name == CUSTOM:
-        # Same idea for the key: a custom URL with no key of its own falls back
-        # to the default profile's key, which is what "custom base URL, usual
-        # account" means in practice.
-        fallback = defaults(cfg).get(kind, "standard")
-        key = known.get(fallback, Profile(fallback, STANDARD_BASE_URL, "")).api_key
-    return Profile(entry.name, base, key, entry.label or entry.name, entry.kind, entry.refs_mode)
+    return Endpoint(entry.name, provider, base, key, entry.label or entry.name, entry.refs_mode, entry.model)
+
+
+__all__ = [
+    "AGENT_PLAN_BASE_URL",
+    "ARK",
+    "ARK_PLAN",
+    "ARK_STANDARD",
+    "ARK_BASE_URLS",
+    "CONFIG_PATH",
+    "CUSTOM",
+    "Endpoint",
+    "OPENAI",
+    "OPENAI_PROFILE",
+    "REFS_MODES",
+    "STANDARD_BASE_URL",
+    "ark_endpoints",
+    "defaults",
+    "endpoints",
+    "first_model",
+    "loaded_config",
+    "migrate",
+    "openai_endpoints",
+    "profile_names",
+    "raw_config",
+    "resolve",
+]

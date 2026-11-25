@@ -1,4 +1,4 @@
-"""Profiles are the point of this pack: which URL, which key, and who wins."""
+"""Two provider namespaces, their migration, and the resolution order."""
 from __future__ import annotations
 
 import os
@@ -8,138 +8,112 @@ import _load  # noqa: F401  (loads the package)
 
 from arkflex.ark.config import (
     AGENT_PLAN_BASE_URL,
+    ARK,
+    ARK_PLAN,
+    ARK_STANDARD,
     CUSTOM,
+    OPENAI,
     STANDARD_BASE_URL,
+    ark_endpoints,
     defaults,
+    first_model,
+    migrate,
+    openai_endpoints,
     profile_names,
-    profiles,
     resolve,
 )
-from arkflex.ark.errors import explain
+
+OLD = {
+    "profiles": {
+        "standard": {"base_url": STANDARD_BASE_URL, "api_key": "std-key"},
+        "agent-plan": {"base_url": AGENT_PLAN_BASE_URL + "/", "api_key": "plan-key"},
+        "apiyi": {"base_url": "https://relay.invalid/v1", "api_key": "relay-key", "kind": "openai",
+                  "refs_mode": "multipart", "model": "gpt-image-2.5"},
+    },
+    "defaults": {"image": "apiyi", "video": "standard"},
+}
 
 
-class ProfilesTest(unittest.TestCase):
-    def test_both_official_surfaces_are_built_in(self):
-        known = profiles({})
-        self.assertEqual(known["standard"].base_url, STANDARD_BASE_URL)
-        self.assertEqual(known["agent-plan"].base_url, AGENT_PLAN_BASE_URL)
-        # Keys never ship with the package.
-        self.assertEqual(known["standard"].api_key, "")
-        self.assertEqual(known["agent-plan"].api_key, "")
+class MigrationTest(unittest.TestCase):
+    def test_old_profiles_split_into_two_sections(self):
+        migrated = migrate(OLD)
+        self.assertIn("ark", migrated)
+        self.assertIn("openai", migrated)
+        self.assertEqual(migrated["ark"][ARK_STANDARD]["api_key"], "std-key")
+        self.assertEqual(migrated["openai"]["apiyi"]["api_key"], "relay-key")
+        self.assertEqual(migrated["openai"]["apiyi"]["refs_mode"], "multipart")
+        self.assertEqual(migrated["openai"]["apiyi"]["model"], "gpt-image-2.5")
 
-    def test_config_overrides_a_built_in_and_adds_one(self):
-        config = {
-            "profiles": {
-                "agent-plan": {"base_url": AGENT_PLAN_BASE_URL + "/", "api_key": "plan-key", "label": "计划"},
-                "proxy": {"base_url": "https://example.invalid/api/v3", "api_key": "proxy-key"},
-            }
-        }
-        known = profiles(config)
-        self.assertEqual(known["agent-plan"].api_key, "plan-key")
-        self.assertEqual(known["agent-plan"].base_url, AGENT_PLAN_BASE_URL, "a trailing slash is trimmed")
-        self.assertEqual(known["agent-plan"].display, "计划")
+    def test_an_already_new_config_is_left_alone(self):
+        new = {"ark": {"standard": {"api_key": "k"}}, "openai": {}}
+        self.assertIs(migrate(new), new)
+
+
+class EndpointTest(unittest.TestCase):
+    def test_ark_section_has_the_two_official_surfaces(self):
+        known = ark_endpoints({"ark": {"standard": {"api_key": "k"}}})
+        self.assertEqual(known[ARK_STANDARD].base_url, STANDARD_BASE_URL)
+        self.assertEqual(known[ARK_PLAN].base_url, AGENT_PLAN_BASE_URL)
+        self.assertEqual(known[ARK_STANDARD].api_key, "k")
+        self.assertTrue(known[ARK_STANDARD].is_ark)
+
+    def test_an_extra_ark_surface_is_kept(self):
+        known = ark_endpoints({"ark": {"proxy": {"base_url": "https://proxy.invalid/api/v3", "api_key": "p"}}})
         self.assertIn("proxy", known)
-        self.assertEqual(known["proxy"].display, "proxy")
+        self.assertEqual(known["proxy"].base_url, "https://proxy.invalid/api/v3")
 
-    def test_provider_kind_and_refs_mode_are_read(self):
-        known = profiles({
-            "profiles": {
-                "relay": {"base_url": "https://example.invalid/v1", "kind": "openai", "refs_mode": "multipart"},
-                "typo": {"base_url": "https://example.invalid/v1b", "kind": "openai-compatible"},
-            }
-        })
-        self.assertEqual(known["relay"].kind, "openai")
-        self.assertEqual(known["relay"].refs_mode, "multipart")
-        self.assertFalse(known["relay"].is_ark)
-        self.assertEqual(known["typo"].kind, "ark", "an unknown kind falls back to Ark, never guesses")
+    def test_openai_section_requires_a_base_url(self):
+        known = openai_endpoints({"openai": {"relay": {"api_key": "k"}, "ok": {"base_url": "https://x/v1"}}})
+        self.assertNotIn("relay", known, "no URL means nothing to call")
+        self.assertEqual(known["ok"].provider, OPENAI)
+        self.assertEqual(known["ok"].refs_mode, "json")
 
-    def test_built_in_surfaces_default_to_ark_and_json_refs(self):
-        known = profiles({})
-        self.assertEqual(known["standard"].kind, "ark")
-        self.assertEqual(known["standard"].refs_mode, "json")
-
-    def test_a_profile_without_a_url_is_ignored(self):
-        known = profiles({"profiles": {"broken": {"api_key": "k"}, "blank": {"base_url": "  "}}})
-        self.assertNotIn("broken", known)
-        self.assertNotIn("blank", known)
-
-    def test_combo_lists_every_profile_then_custom(self):
-        names = profile_names({"profiles": {"proxy": {"base_url": "https://example.invalid/api/v3"}}})
-        self.assertEqual(names[0], "standard")
+    def test_profile_names_offer_custom_last(self):
+        names = profile_names(ARK, {"ark": {}})
         self.assertEqual(names[-1], CUSTOM)
-        self.assertIn("proxy", names)
-
-    def test_defaults_name_a_profile_per_kind(self):
-        self.assertEqual(defaults({}), {"image": "standard", "video": "standard"})
-        self.assertEqual(
-            defaults({"defaults": {"image": "agent-plan", "video": "  "}}),
-            {"image": "agent-plan", "video": "standard"},
-        )
+        self.assertIn(ARK_STANDARD, names)
 
 
 class ResolveTest(unittest.TestCase):
     def setUp(self):
-        self._env = os.environ.pop("ARK_API_KEY", None)
-
-    def tearDown(self):
         os.environ.pop("ARK_API_KEY", None)
-        if self._env is not None:
-            os.environ["ARK_API_KEY"] = self._env
 
-    def test_the_node_profile_wins_over_the_kind_default(self):
-        config = {"defaults": {"video": "standard"}}
-        chosen = resolve("video", profile="agent-plan", config=config)
+    def test_ark_defaults_to_standard_and_honours_a_choice(self):
+        self.assertEqual(resolve(ARK, config={}).name, ARK_STANDARD)
+        chosen = resolve(ARK, profile=ARK_PLAN, config={"ark": {ARK_PLAN: {"api_key": "plan"}}})
         self.assertEqual(chosen.base_url, AGENT_PLAN_BASE_URL)
+        self.assertEqual(chosen.api_key, "plan")
 
-    def test_image_and_video_can_point_at_different_surfaces(self):
-        config = {
-            "profiles": {
-                "standard": {"base_url": STANDARD_BASE_URL, "api_key": "std"},
-                "agent-plan": {"base_url": AGENT_PLAN_BASE_URL, "api_key": "plan"},
-            },
-            "defaults": {"image": "standard", "video": "agent-plan"},
-        }
-        self.assertEqual(resolve("image", config=config).base_url, STANDARD_BASE_URL)
-        self.assertEqual(resolve("video", config=config).base_url, AGENT_PLAN_BASE_URL)
-        self.assertEqual(resolve("video", config=config).api_key, "plan")
-
-    def test_custom_without_a_url_falls_back_to_the_kind_default(self):
-        chosen = resolve("video", profile=CUSTOM, config={"defaults": {"video": "agent-plan"}})
-        self.assertEqual(chosen.base_url, AGENT_PLAN_BASE_URL)
-
-    def test_overrides_win(self):
-        config = {"profiles": {"proxy": {"base_url": "https://example.invalid/api/v3", "api_key": "x"}}}
+    def test_a_node_override_beats_the_section(self):
         chosen = resolve(
-            "image",
-            profile="proxy",
-            base_url_override="https://other.invalid/api/v3/",
-            api_key_override=" y ",
-            config=config,
+            ARK,
+            profile=ARK_STANDARD,
+            api_key_override="node-key",
+            base_url_override="https://node.invalid/api/v3/",
+            config={"ark": {ARK_STANDARD: {"api_key": "section-key"}}},
         )
-        self.assertEqual(chosen.base_url, "https://other.invalid/api/v3")
-        self.assertEqual(chosen.api_key, "y")
+        self.assertEqual(chosen.api_key, "node-key")
+        self.assertEqual(chosen.base_url, "https://node.invalid/api/v3", "trailing slash trimmed")
 
-    def test_environment_key_is_the_last_resort(self):
+    def test_env_is_the_ark_fallback(self):
         os.environ["ARK_API_KEY"] = "env-key"
-        self.assertEqual(resolve("image", config={}).api_key, "env-key")
+        try:
+            self.assertEqual(resolve(ARK, config={}).api_key, "env-key")
+        finally:
+            os.environ.pop("ARK_API_KEY", None)
 
-    def test_a_profile_key_beats_the_environment(self):
-        os.environ["ARK_API_KEY"] = "env-key"
-        config = {"profiles": {"standard": {"base_url": STANDARD_BASE_URL, "api_key": "profile-key"}}}
-        self.assertEqual(resolve("image", config=config).api_key, "profile-key")
+    def test_an_openai_default_does_not_leak_into_the_ark_node(self):
+        # defaults.image may name the relay; an Ark call must still go to Ark.
+        chosen = resolve(ARK, config={"defaults": {"image": "apiyi"}, "openai": {"apiyi": {"base_url": "https://x/v1"}}})
+        self.assertEqual(chosen.name, ARK_STANDARD)
+        self.assertEqual(chosen.base_url, STANDARD_BASE_URL)
 
-
-class ErrorTextTest(unittest.TestCase):
-    def test_a_403_names_both_surfaces(self):
-        text = explain(403, {"error": {"code": "Forbidden"}}, AGENT_PLAN_BASE_URL)
-        self.assertIn("Agent Plan", text)
-        self.assertIn("/api/v3", text)
-        self.assertIn("互不通用", text)
-
-    def test_other_statuses_stay_short(self):
-        self.assertIn("404", explain(404, "nope", STANDARD_BASE_URL))
-        self.assertIn("429", explain(429, "", STANDARD_BASE_URL))
-        self.assertIn("500", explain(500, "", STANDARD_BASE_URL))
+    def test_openai_resolves_its_section(self):
+        config = {"openai": {"apiyi": {"base_url": "https://relay.invalid/v1", "api_key": "k", "refs_mode": "multipart"}}}
+        self.assertEqual(resolve(OPENAI, config=config).name, "apiyi")
+        self.assertEqual(resolve(OPENAI, config=config).refs_mode, "multipart")
+        self.assertEqual(defaults(config)["image"], ARK_STANDARD)
+        self.assertEqual(first_model(OPENAI, {"openai": {"a": {"base_url": "https://x/v1", "model": "m"}}}), "m")
 
 
 if __name__ == "__main__":

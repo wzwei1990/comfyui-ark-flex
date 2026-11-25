@@ -1,8 +1,18 @@
-# Ark Flex · ComfyUI 火山方舟节点（Seedream / Seedance）
+# Ark Flex · ComfyUI 节点（方舟 Seedream / Seedance + OpenAI 兼容图片）
 
-两个节点，覆盖**火山方舟的 Seedream 图片**和 **Seedance 视频**。它只解决一个最容易被卡住的问题：
+三个节点，各管一件事：
 
-火山方舟有**两套 API 入口**，请求体一样，但 **Key 不通用**。
+| 节点 | 负责 | 连接来自 |
+| --- | --- | --- |
+| `ArkImage` | 火山方舟 **Seedream** 图片（文生图 / 图生图） | 设置 → **方舟 Ark** |
+| `OpenAIImage` | **任何 OpenAI 兼容图片接口**（apiyi 等中转、官方 `/v1`） | 设置 → **OpenAI 兼容** |
+| `ArkVideo` | 火山方舟 **Seedance** 视频（文生 / 首帧 / 首尾帧 / 参考图） | 设置 → **方舟 Ark** |
+
+两家的设置、下拉、节点都是分开的 —— 不会出现"一个 profile 下拉里混着方舟和第三方中转"。
+
+## 为什么需要它
+
+火山方舟有**两套 API 入口**，请求体一样，但 **Key 不通用**：
 
 | 入口 | Base URL | 说明 |
 | --- | --- | --- |
@@ -11,103 +21,98 @@
 
 用标准 Key 打 Agent Plan 地址会 **403**，反过来也一样。多数现成节点把标准地址写死，于是 Agent Plan 的 Key 直接不可用。
 
-本包把"入口"做成 **profile（接入面）**：一个有名字的 `(base_url, api_key)` 组合。每个节点上都有一个 `profile` 下拉，因此**图片可以走标准入口、视频走 Agent Plan**，或者任意组合。
+本包把"入口"做成 **profile（接入面）**：一个有名字的 `(base_url, api_key)` 组合，按节点选择；图片和视频可以各走一套。第三方 OpenAI 兼容接口则单独归到 `openai` 那一节，和方舟互不影响。
 
 ## 特性
 
-- **按节点选接入面**：`standard`、`agent-plan`，或在 `config.json` 里自己加 profile；单次调用还能用 `base_url_override` / `api_key_override` 覆盖。
-- **图片与视频各自独立**：两个节点分别解析自己的 profile，互不影响。
-- **`custom_model`**：下拉里没有的模型 / 端点 id 直接填（新的 `doubao-seedance-*` 就靠它）。
-- **`extra_json`**：浅合并进请求体，方舟新增参数不用改代码。
-- **报错能看懂**：403 会直接告诉你当前 profile 指向哪个入口、Key 很可能属于另一个入口。
+- **方舟 / OpenAI 兼容彻底分开**：两个图片节点、两页设置、两段配置，不共用下拉。
+- **按节点选接入面**：`standard`、`agent-plan`，或自己加的方舟 profile；单次调用可用 `base_url_override` / `api_key_override` 覆盖。
+- **Key 存在插件目录**：`custom_nodes/ComfyUI-ArkFlex/config.json`（已 gitignore），**卸载 = 删目录 = Key 一起消失**，ComfyUI 全局设置里不留明文。
+- **参考图两种送法**：`json`（data URL，方舟与多数中转）或 `multipart`（真正的 `/images/edits` 上传）；节点上可单独覆盖。
+- **`custom_model` / 自定义模型**：下拉没有的模型、端点 id 直接填（新的 `doubao-*` 就靠它）。
+- **`extra_json`**：浅合并进请求体，接口新增参数不用改代码。
+- **报错能看懂**：403 会说明当前指向哪个入口、Key 很可能属于另一个；尺寸不合法会直接说要求。
 - **零三方依赖**：只用标准库；图片解码用 ComfyUI 自带的 torch / numpy / Pillow。
 
 ## 安装
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone <本仓库地址> ComfyUI-ArkFlex
+git clone https://github.com/wzwei1990/comfyui-ark-flex.git ComfyUI-ArkFlex
 ```
 
-重启 ComfyUI，节点分类里会出现 **Ark / 火山方舟**。
+重启 ComfyUI，节点分类里出现 **Ark / 火山方舟**。
 
-## 支持的接口
+## 配置（两页设置，八个项）
 
-| `kind` | 是什么 | 参考图 |
-|---|---|---|
-| `ark`（默认） | 火山方舟，两个入口：`/api/v3`（标准）与 `/api/plan/v3`（Agent Plan） | `refs_mode: json`（data URL） |
-| `openai` | **任何 OpenAI 兼容的图片接口**（第三方中转、官方 `/v1` 等） | `json`（data URL，多数中转）/ `multipart`（真正的 `/images/edits` 上传）/ `none` |
+**ComfyUI 设置 → 方舟 Ark**
+
+| 二级 | 设置项 | 写到 `config.json` |
+| --- | --- | --- |
+| 密钥 | 标准 API Key（/api/v3） | `ark.standard.api_key` |
+| 密钥 | Agent Plan Key（/api/plan/v3） | `ark.agent-plan.api_key` |
+| 图片 | 图片默认接入面（standard / agent-plan） | `defaults.image` |
+| 视频 | 视频默认接入面 | `defaults.video` |
+
+**ComfyUI 设置 → OpenAI 兼容**
+
+| 二级 | 设置项 | 写到 `config.json` |
+| --- | --- | --- |
+| 连接 | 接口地址（base_url，到版本号为止） | `openai.apiyi.base_url` |
+| 连接 | API Key | `openai.apiyi.api_key` |
+| 连接 | 参考图传输方式（json / multipart / none） | `openai.apiyi.refs_mode` |
+| 图片 | 默认模型 | `openai.apiyi.model` |
+
+- 粘贴 Key 后会**立即写入插件目录的 `config.json`**，字段变成 `✅ 已保存到 config.json（卸载插件即清除）` 的标记（不是空白，避免"以为没填上"）；再粘一次即覆盖。
+- 也可以手写 `config.json`（照 `config.example.json`），或用环境变量 `ARK_API_KEY`（仅方舟）。
+- 优先级：`节点覆盖 → config.json 对应区间 → ARK_API_KEY（仅方舟）→ 内置默认`。
 
 ```jsonc
 // config.json
-"profiles": {
-  "standard":    { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/v3",      "api_key": "…" },
-  "agent-plan":  { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" },
-  "apiyi":       { "kind": "openai", "base_url": "https://你的中转/v1", "api_key": "…", "refs_mode": "json" },
-  "openai":      { "kind": "openai", "base_url": "https://api.openai.com/v1", "api_key": "…", "refs_mode": "multipart" }
+{
+  "ark": {
+    "standard":   { "base_url": "https://ark.cn-beijing.volces.com/api/v3",      "api_key": "…" },
+    "agent-plan": { "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" }
+  },
+  "openai": {
+    "apiyi": { "base_url": "https://你的中转/v1", "api_key": "…", "refs_mode": "json", "model": "gpt-image-2.5-sunburst-vip" }
+  },
+  "defaults": { "image": "standard", "video": "standard" }
 }
 ```
 
-- 视频节点**只支持方舟入口**；给视频选一个 `kind: openai` 的 profile 会直接报错说明原因。
-- 尺寸：用 `size` 预设，或同时填 `width`/`height`（两者都 >0 才生效；方舟要求 16 的倍数，OpenAI 兼容接口不限）。
-- 这样 `comfyui-byokey` 的两类家族（方舟中转、第三方中转）都能被替换：同一个节点 + 不同 profile。
+旧版本（`profiles` + `kind`）的配置在读取时会**自动迁移**到上面两段，不用重填 Key。
 
-## 配置
+## 参考图传输方式（refs_mode）
 
-**Key 就存在这个插件目录里**（`custom_nodes/ComfyUI-ArkFlex/config.json`），所以**卸载 = 删目录 = Key 一起消失**，ComfyUI 全局设置里不留副本。
+图生图 / 带参考图时，参考图怎么送到接口：
 
-三种填法，推荐第一种（不用碰文件）：
+| 值 | 行为 | 适用 |
+| --- | --- | --- |
+| `json` | 参考图转成 data URL，放进 JSON body 的 `image` 字段 | 方舟、多数第三方中转（apiyi 等） |
+| `multipart` | `POST /images/edits`，真正的多文件上传 | OpenAI 官方接口或要求标准 edits 形态的服务 |
+| `none` | 不允许参考图 | 只做文生图，或该接口不支持 |
 
-1. **ComfyUI 设置面板**：`设置 → Ark Flex` 里四项 —— `标准 API Key（/api/v3）`、`Agent Plan Key（/api/plan/v3）`、**图片默认接入面**、**视频默认接入面**。
-   粘贴 Key 后会**立即写入本插件目录的 `config.json`**，字段随即变成 **`✅ 已保存到 config.json（卸载插件即清除）`** 的标记（不是空白，避免"以为没填上"）；再粘一次即覆盖。ComfyUI 全局 `comfy.settings.json` 里**不留明文**。
-   两个下拉写的是 `config.json` 的 `defaults.image` / `defaults.video` —— 图片和视频可以各走一套入口（例如图片走标准、视频走 Agent Plan）。
-2. **`config.json` 的 `profiles.<名字>.api_key`**：手动编辑（适合一台机器多套配置）
-3. **节点上的 `api_key_override`**：临时、只对该节点这一次生效
+不知道就保持 `json`；如果图生图报 400 / 415 / "unsupported"，改成 `multipart`。节点上的 `refs_mode` 可对单个节点覆盖。
 
-也可以交给环境变量 `ARK_API_KEY`。
+## 尺寸
 
-取值顺序（先命中者优先）：
-
-```
-节点覆盖  ->  config.json 的 profile  ->  旧版 comfy.settings.json（仅兼容读取）  ->  ARK_API_KEY  ->  内置默认
-```
-
-`config.json` 已加入 `.gitignore`：Key 不会进仓库。
+- `ArkImage`：`size` 预设，或同时填 `width`/`height`（两者都 >0 才生效；**方舟要求 16 的倍数**）。
+- `OpenAIImage`：`size` 字符串（如 `1024x1024`），或 `width`/`height` 覆盖（不限 16 的倍数）。
+- `ArkVideo`：`width`/`height` 会映射到方舟的 `ratio` + 分辨率档，`length`（帧）按 `fps` 换算成 4–30 秒。
 
 ## 卸载
 
-删掉 `custom_nodes/ComfyUI-ArkFlex` 目录并重启 ComfyUI 即可 —— 节点、设置项、Key 一起消失，没有残留。
-
-（唯一的历史情况：如果你**在早期版本**里填过 Key，ComfyUI 的 `user/default/comfy.settings.json` 里会有一条旧记录；本版首次加载会自动把它迁移进插件目录并清空那条记录。）
-
-## 节点
-
-### Ark 图片 · Seedream
-`prompt`、`model`、`size`（像素预设，按像素台阶计费，别用 2048×2048 正方形）、`max_images`（1–4，内部按 `seed + i` 连发）、`seed`、`watermark`、可选 `image1..4` 参考图、`custom_model`、`extra_json`。
-输出 `IMAGE` 批次 + 信息字符串。
-
-### Ark 视频 · Seedance
-`prompt`、`model`、`mode`（文生 / 首帧 / 首尾帧 / 参考图）、`resolution`、`ratio`、`duration`（4–30 秒）、`generate_audio`、`output_format`、`seed`、`watermark`、`timeout`、`poll_seconds`，可选 `first_frame`、`last_frame`、`ref_image1..3`、`custom_model`、`extra_json`。
-输出 `VIDEO` + 信息字符串（宿主没有 `VIDEO` 类型时只给文件路径）。本地参考图会转成 base64 data URL，**不需要上传**。
-
-成片保存到 `output/ark/video/`。
-
-## 关于模型 id
-
-模型 id 变化很快。下拉里是写这个包时已知的值；你的模型不在里面时，填 **`custom_model`**（或方舟控制台里的端点 id `ep-...`）。这是刻意的取舍：与其维护一张会过期的清单，不如留一个输入框。
+删掉 `custom_nodes/ComfyUI-ArkFlex` 并重启 —— 节点、设置项、Key 一起消失，没有残留。
 
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests
 ```
 
-测试完全离线：覆盖 profile 解析优先级、各视频模式的 payload 组装、尺寸解析、错误文案、data URL 路径（张量编码器被 stub 掉，因为 torch 属于 ComfyUI 运行时依赖）。
-
-## 参考
-
-实现前读过 `HinaAyanami/comfyui-ark-nodes` 与 `fkxianzhou/ComfyUI-Jimeng-API`（均为 MIT）：协议细节与 Agent Plan 地址的坑来自它们和火山官方文档。本包的不同点是把"接入面"做成一等公民、按节点可选。
+离线运行（网络与 torch 都被隔离）：端点解析、迁移、请求体、multipart 帧格式、尺寸校验、视频换算。
 
 ## 许可
 
-MIT，见 [LICENSE](LICENSE)。
+MIT。协议细节参考了 `HinaAyanami/comfyui-ark-nodes` 与 `fkxianzhou/ComfyUI-Jimeng-API`（均为 MIT）。

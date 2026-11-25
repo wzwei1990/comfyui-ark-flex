@@ -9,13 +9,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..ark.config import CUSTOM, profile_names, resolve
+from ..ark.config import ARK, CUSTOM, OPENAI, profile_names, resolve
 from ..ark.errors import ArkError
 
 MAX_SEED = 2**31 - 1
 
 PROFILE_INPUTS = {
-    "profile": (profile_names(), {"default": "standard", "tooltip": "选择接入面：standard (/api/v3) 或 agent-plan (/api/plan/v3)；两者 Key 不通用。"}),
+    "profile": (profile_names(ARK), {"default": "standard", "tooltip": "方舟接入面：standard (/api/v3) 或 agent-plan (/api/plan/v3)；两者 Key 不通用。"}),
     "base_url_override": ("STRING", {"default": "", "tooltip": "留空则用 profile 的地址；填了则覆盖（例如自己代理的兼容地址）。"}),
     "api_key_override": ("STRING", {"default": "", "tooltip": "留空则用 config.json / ARK_API_KEY；填了则只对本节点生效。"}),
 }
@@ -29,17 +29,24 @@ COMMON_OPTIONS = {
 }
 
 
-def client_for(kind: str, **kwargs: Any):
-    """Build an `ArkClient` from a node's inputs, explaining a missing key."""
+def client_for(provider: str, *, kind: str = "image", profile: str | None = None,
+               base_url_override: str = "", api_key_override: str = ""):
+    """Build a client for one node call, explaining what is missing."""
     from ..ark.client import ArkClient
 
-    profile = resolve(kind, **{key: kwargs.get(key) for key in ("profile", "base_url_override", "api_key_override")})
-    if not profile.api_key:
-        raise ArkError(
-            "没有 API Key：把 Key 填进 config.json 的对应 profile、设置环境变量 ARK_API_KEY，"
-            "或在本节点填 api_key_override。方舟标准入口与 Agent Plan 入口的 Key 不通用。"
-        )
-    return ArkClient(profile.base_url, profile.api_key), profile
+    endpoint = resolve(
+        provider,
+        profile=profile,
+        base_url_override=base_url_override,
+        api_key_override=api_key_override,
+        kind=kind,
+    )
+    if not endpoint.base_url:
+        raise ArkError("没有 base_url：请在节点上填接口地址，或在插件设置里配置一个连接。")
+    if not endpoint.api_key:
+        hint = "插件设置 → 方舟 Ark → 密钥" if provider == ARK else "插件设置 → OpenAI 兼容 → 连接"
+        raise ArkError(f"没有 API Key：请在{hint}里填一次（会保存进插件目录的 config.json）。")
+    return ArkClient(endpoint.base_url, endpoint.api_key), endpoint
 
 
 def model_id(model: str, custom_model: str) -> str:

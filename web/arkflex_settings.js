@@ -1,23 +1,32 @@
 import { app } from "../../scripts/app.js";
 
-// Two key fields and two "which surface is default" pickers, all in ComfyUI's
-// own Settings dialog.
+// Two provider pages in ComfyUI's Settings dialog:
 //
-// The key fields are an *input* only: on change the value is POSTed to
-// /arkflex/settings, which writes it into this pack's config.json (inside the
-// node folder), and the field is then replaced by a short "saved" marker. The
-// marker is not a secret — it makes the save visible, where a blank field reads
-// as "nothing happened". ComfyUI therefore keeps no copy of the key, so deleting
-// the folder is a complete uninstall.
+//   方舟 Ark      → 密钥（标准 / Agent Plan）  · 图片（默认接入面） · 视频（默认接入面）
+//   OpenAI 兼容   → 连接（地址 / Key / 参考图方式） · 图片（默认模型）
+//
+// ComfyUI groups settings by `category[0]` / `category[1]`, which is why both
+// levels are given explicitly — an id like `Ark.StandardApiKey` alone would put
+// each entry in its own sub-group.
+//
+// Secrets are write-only from this dialog: on change they are POSTed to
+// /arkflex/settings (which writes the pack's config.json) and the field is
+// replaced by a marker. Nothing secret stays in comfy.settings.json, so
+// deleting the node folder is a complete uninstall.
 const ENDPOINT = "/arkflex/settings";
 
-// Must match SAVED_MARKER in ark/settings.py: a value equal to this is ignored
-// when the Python side reads the legacy settings file.
+// Must match the marker string the dialog writes; it is never sent as a key.
 const MARKER = "✅ 已保存到 config.json（卸载插件即清除）";
 
-const SURFACES = [
+const ARK_SURFACES = [
   { value: "standard", text: "标准 API（/api/v3）" },
   { value: "agent-plan", text: "Agent Plan（/api/plan/v3）" },
+];
+
+const REFS_MODES = [
+  { value: "json", text: "json — data URL（方舟 / 多数中转）" },
+  { value: "multipart", text: "multipart — /images/edits 上传（OpenAI 官方）" },
+  { value: "none", text: "none — 不接受参考图" },
 ];
 
 async function post(payload) {
@@ -38,107 +47,190 @@ function complain(error) {
   app.ui.dialog?.show?.(`Ark Flex：保存失败 —— ${error?.message || error}`);
 }
 
-// The value goes to the pack's file; the field is left showing a marker. A blank
-// value or the marker itself (the second onChange fired by that write) is ignored.
-async function adoptKey(settingId, key, value) {
+// A secret: save it, then show the marker. Blank or marker values (a second
+// onChange fired by that write) are ignored.
+async function adoptSecret(settingId, field, value) {
   const text = typeof value === "string" ? value.trim() : "";
   if (text === "" || text === MARKER) return;
   try {
-    await post({ [key]: text });
+    await post({ [field]: text });
     app.ui.settings.setSettingValue(settingId, MARKER);
   } catch (error) {
     complain(error);
   }
 }
 
-async function adoptSurface(key, value) {
-  if (value !== "standard" && value !== "agent-plan") return;
+async function adopt(settingId, field, value) {
+  if (typeof value !== "string") return;
   try {
-    await post({ [key]: value });
+    await post({ [field]: value });
+  } catch (error) {
+    complain(error);
+    return;
+  }
+  if (settingId === "OpenAI.RefsMode") return;
+}
+
+// Plain values (addresses, model names) are mirrored back into the field so the
+// dialog shows what config.json actually says.
+async function adoptVisible(field, value) {
+  if (typeof value !== "string" || value.trim() === "") return;
+  try {
+    await post({ [field]: value.trim() });
   } catch (error) {
     complain(error);
   }
 }
 
+const SECRETS = [
+  ["Ark.StandardApiKey", "arkStandard"],
+  ["Ark.PlanApiKey", "arkPlan"],
+  ["OpenAI.ApiKey", "openaiApiKey"],
+];
+
 app.registerExtension({
   name: "ArkFlex.Settings",
   settings: [
     {
-      id: "ArkFlex.StandardApiKey",
-      name: "Ark Flex · 标准 API Key（/api/v3）",
+      id: "Ark.StandardApiKey",
+      name: "标准 API Key（/api/v3）",
+      category: ["方舟 Ark", "密钥"],
       type: "text",
       defaultValue: "",
-      tooltip:
-        "粘贴即保存到 custom_nodes/ComfyUI-ArkFlex/config.json，字段会变成「已保存」标记，不在 ComfyUI 全局设置里留明文。再粘一次即覆盖。",
+      tooltip: "粘贴即保存到 custom_nodes/ComfyUI-ArkFlex/config.json，字段变成「已保存」标记；再粘一次即覆盖。",
       attrs: { autocomplete: "off" },
       onChange(value) {
-        void adoptKey("ArkFlex.StandardApiKey", "standard", value);
+        void adoptSecret("Ark.StandardApiKey", "arkStandard", value);
       },
     },
     {
-      id: "ArkFlex.PlanApiKey",
-      name: "Ark Flex · Agent Plan Key（/api/plan/v3）",
+      id: "Ark.PlanApiKey",
+      name: "Agent Plan Key（/api/plan/v3）",
+      category: ["方舟 Ark", "密钥"],
       type: "text",
       defaultValue: "",
-      tooltip:
-        "同上，写入本插件目录。Agent Plan 的 Key 与标准入口不通用；粘错入口会得到 403（节点会直接说明）。",
+      tooltip: "Agent Plan 控制台的 Key；与标准入口不通用，粘错入口会得到 403（节点会说明）。",
       attrs: { autocomplete: "off" },
       onChange(value) {
-        void adoptKey("ArkFlex.PlanApiKey", "agentPlan", value);
+        void adoptSecret("Ark.PlanApiKey", "arkPlan", value);
       },
     },
     {
-      id: "ArkFlex.ImageSurface",
-      name: "Ark Flex · 图片默认接入面",
+      id: "Ark.ImageSurface",
+      name: "图片默认接入面",
+      category: ["方舟 Ark", "图片"],
       type: "combo",
-      options: SURFACES,
+      options: ARK_SURFACES,
       defaultValue: "standard",
-      tooltip: "写入 config.json 的 defaults.image。图片和视频可以各走一套入口。",
+      tooltip: "Ark 图片节点上 profile 选「自定义」时的回退；一般节点上选 profile 就够了。",
       onChange(value) {
-        void adoptSurface("imageDefault", value);
+        void adopt("Ark.ImageSurface", "imageDefault", value);
       },
     },
     {
-      id: "ArkFlex.VideoSurface",
-      name: "Ark Flex · 视频默认接入面",
+      id: "Ark.VideoSurface",
+      name: "视频默认接入面",
+      category: ["方舟 Ark", "视频"],
       type: "combo",
-      options: SURFACES,
+      options: ARK_SURFACES,
       defaultValue: "standard",
-      tooltip: "写入 config.json 的 defaults.video。",
+      tooltip: "视频只支持方舟；这里决定默认走标准入口还是 Agent Plan。",
       onChange(value) {
-        void adoptSurface("videoDefault", value);
+        void adopt("Ark.VideoSurface", "videoDefault", value);
+      },
+    },
+    {
+      id: "OpenAI.BaseUrl",
+      name: "接口地址（base_url）",
+      category: ["OpenAI 兼容", "连接"],
+      type: "text",
+      defaultValue: "",
+      tooltip: "到版本号为止，例如 https://你的中转/v1 。保存到 config.json 的 openai.apiyi.base_url。",
+      onChange(value) {
+        void adoptVisible("openaiBaseUrl", value);
+      },
+    },
+    {
+      id: "OpenAI.ApiKey",
+      name: "API Key",
+      category: ["OpenAI 兼容", "连接"],
+      type: "text",
+      defaultValue: "",
+      tooltip: "粘贴即保存进插件目录；字段变成「已保存」标记，不在 ComfyUI 全局设置里留明文。",
+      attrs: { autocomplete: "off" },
+      onChange(value) {
+        void adoptSecret("OpenAI.ApiKey", "openaiApiKey", value);
+      },
+    },
+    {
+      id: "OpenAI.RefsMode",
+      name: "参考图传输方式",
+      category: ["OpenAI 兼容", "连接"],
+      type: "combo",
+      options: REFS_MODES,
+      defaultValue: "json",
+      tooltip:
+        "图生图时怎么送参考图：json=塞进 JSON body 的 image 字段（方舟 / 多数中转）；multipart=真正的 /images/edits 上传（OpenAI 官方）；none=不允许参考图。不确定就用 json。",
+      onChange(value) {
+        void adopt("OpenAI.RefsMode", "openaiRefsMode", value);
+      },
+    },
+    {
+      id: "OpenAI.DefaultModel",
+      name: "默认模型",
+      category: ["OpenAI 兼容", "图片"],
+      type: "text",
+      defaultValue: "",
+      tooltip: "节点上 model 留空时使用；也可以直接写进节点。",
+      onChange(value) {
+        void adoptVisible("openaiModel", value);
       },
     },
   ],
 
   async setup() {
-    // Migration: a key typed before the write-through existed still sits in
-    // comfy.settings.json. Move it into the pack and leave the marker behind.
-    for (const [id, key] of [
-      ["ArkFlex.StandardApiKey", "standard"],
-      ["ArkFlex.PlanApiKey", "agentPlan"],
-    ]) {
-      const value = app.ui.settings.getSettingValue(id, "");
-      if (typeof value === "string" && value.trim() !== "" && value.trim() !== MARKER) {
-        await adoptKey(id, key, value);
+    // Secrets arrive as markers so the dialog reflects "already saved".
+    for (const [id, field] of SECRETS) {
+      const current = app.ui.settings.getSettingValue(id, "");
+      if (typeof current === "string" && current.trim() !== "" && current.trim() !== MARKER) {
+        // A value typed before this version: move it into config.json.
+        await adoptSecret(id, field, current);
       }
     }
-    // Show the stored defaults, so the pickers are not lying about config.json.
+    // Visible values come from config.json, so they are never stale.
     try {
       const response = await fetch(ENDPOINT);
       const body = await response.json();
+      const ark = body?.ark || {};
+      const openai = body?.openai || {};
       const defaults = body?.defaults || {};
-      for (const [id, key] of [
-        ["ArkFlex.ImageSurface", "image"],
-        ["ArkFlex.VideoSurface", "video"],
+      const setIfDifferent = (id, value) => {
+        if (typeof value !== "string" || value === "") return;
+        if (app.ui.settings.getSettingValue(id, "") === value) return;
+        app.ui.settings.setSettingValue(id, value);
+      };
+      setIfDifferent("OpenAI.BaseUrl", openai.baseUrl);
+      setIfDifferent("OpenAI.DefaultModel", openai.model);
+      if (typeof openai.refsMode === "string" && openai.refsMode) {
+        app.ui.settings.setSettingValue("OpenAI.RefsMode", openai.refsMode);
+      }
+      for (const [id, saved] of [
+        ["Ark.StandardApiKey", ark.standard],
+        ["Ark.PlanApiKey", ark.agentPlan],
+        ["OpenAI.ApiKey", openai.apiKey],
       ]) {
-        const value = defaults[key];
-        if ((value === "standard" || value === "agent-plan") && app.ui.settings.getSettingValue(id) !== value) {
-          app.ui.settings.setSettingValue(id, value);
+        if (saved && app.ui.settings.getSettingValue(id, "") !== MARKER) {
+          app.ui.settings.setSettingValue(id, MARKER);
         }
       }
+      if (defaults.image === "standard" || defaults.image === "agent-plan") {
+        app.ui.settings.setSettingValue("Ark.ImageSurface", defaults.image);
+      }
+      if (defaults.video === "standard" || defaults.video === "agent-plan") {
+        app.ui.settings.setSettingValue("Ark.VideoSurface", defaults.video);
+      }
     } catch (error) {
-      console.warn("[ArkFlex] could not read the saved defaults:", error);
+      console.warn("[ArkFlex] could not read the saved settings:", error);
     }
   },
 });

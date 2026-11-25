@@ -1,148 +1,115 @@
-# Ark Flex · ComfyUI nodes for Volcengine Ark
+# Ark Flex · ComfyUI nodes (Ark Seedream / Seedance + OpenAI-compatible images)
 
-Two nodes for **Seedream images** and **Seedance videos** on Volcengine Ark, built
-around the one thing that trips people up: Ark has **two API surfaces** —
+Three nodes, one responsibility each:
+
+| Node | Does | Connection from |
+| --- | --- | --- |
+| `ArkImage` | Volcengine Ark **Seedream** images (text-to-image / image-to-image) | Settings → **方舟 Ark** |
+| `OpenAIImage` | **any OpenAI-compatible image API** (third-party relays, `/v1`) | Settings → **OpenAI 兼容** |
+| `ArkVideo` | Volcengine Ark **Seedance** video (text / first frame / first+last / reference) | Settings → **方舟 Ark** |
+
+The two providers are kept apart end to end: separate nodes, separate settings pages, separate config sections. No dropdown mixes an Ark surface with a relay.
+
+## Why
+
+Volcengine Ark has two API surfaces with identical request bodies, but keys that are **not interchangeable**:
 
 | Surface | Base URL | Notes |
 | --- | --- | --- |
-| Standard API | `https://ark.cn-beijing.volces.com/api/v3` | `/images/generations`, `/contents/generations/tasks` |
-| Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | same request bodies, **its own key** |
+| Standard | `https://ark.cn-beijing.volces.com/api/v3` | `/images/generations`, `/contents/generations/tasks` |
+| Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | Same bodies, **Agent Plan console key** |
 
-The keys are **not** interchangeable: a standard key against the plan URL answers
-403, and so does the reverse. Most node packs hard-code the standard URL, which
-makes an Agent Plan key unusable.
+A standard key against the plan URL returns **403**, and vice versa. Most packs hard-code the standard URL, which makes an Agent Plan key unusable.
 
-This pack makes the surface a **profile**: a named pair of base URL + key.
-Every node carries a `profile` widget, so images can run on the standard surface
-while videos run on Agent Plan — or any other combination.
+Here a *surface* is a **profile** — a named `(base_url, api_key)` pair — chosen per node, so images and video can use different surfaces. OpenAI-compatible relays live in their own `openai` section and never appear in the Ark dropdown.
 
 ## Features
 
-- **Per-node profiles.** `standard`, `agent-plan`, or any profile you add to
-  `config.json`; `base_url_override` / `api_key_override` for one-off calls.
-- **Per-node keys.** Image and video resolve their profile independently.
-- **`custom_model`** on both nodes — a model or endpoint id that is not in the
-  dropdown still works (that is how newer `doubao-seedance-*` ids are used).
-- **`extra_json`** — shallow-merge arbitrary fields into the request body, so a
-  new Ark parameter needs no code change.
-- **Actionable errors.** A 403 says *which* surface the profile points at and
-  that the key probably belongs to the other one.
-- **No third-party dependencies.** Standard library only; ComfyUI provides
-  torch / numpy / Pillow, which the image decoding uses.
+- **Ark and OpenAI-compatible are separate**: two image nodes, two settings pages, two config sections.
+- **Per-node surface**: `standard`, `agent-plan`, or your own Ark profile; `base_url_override` / `api_key_override` for a single call.
+- **Keys live in the pack folder** (`custom_nodes/ComfyUI-ArkFlex/config.json`, git-ignored): uninstalling — deleting the folder — removes them, and no plaintext copy stays in `comfy.settings.json`.
+- **Two ways to send references**: `json` (data URLs — Ark and most relays) or `multipart` (a real `/images/edits` upload), overridable per node.
+- **`custom_model` / free-text model**: anything missing from a dropdown, including new endpoint ids.
+- **`extra_json`**: shallow-merged into the request body, so new parameters need no code change.
+- **Errors that explain themselves**: a 403 names the surface you hit and where the key probably belongs; bad sizes say what is required.
+- **Standard library only**: image decoding uses ComfyUI's own torch / numpy / Pillow.
 
 ## Install
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone <this-repo> ComfyUI-ArkFlex
+git clone https://github.com/wzwei1990/comfyui-ark-flex.git ComfyUI-ArkFlex
 ```
 
-Restart ComfyUI, then look for the **Ark / 火山方舟** category.
+Restart ComfyUI; the nodes appear under **Ark / 火山方舟**.
 
-## Which endpoints it talks to
+## Configure (two settings pages, eight entries)
 
-| `kind` | What it is | Reference images |
+**Settings → 方舟 Ark**
+
+| Group | Setting | Written to `config.json` |
 | --- | --- | --- |
-| `ark` (default) | Volcengine Ark — `/api/v3` (standard) and `/api/plan/v3` (Agent Plan) | `refs_mode: json` (data URLs) |
-| `openai` | **any OpenAI-compatible image API** (official `/v1`, a third-party relay, …) | `json` (data URLs, most relays) / `multipart` (a real `/images/edits` upload) / `none` |
+| 密钥 | Standard API key (/api/v3) | `ark.standard.api_key` |
+| 密钥 | Agent Plan key (/api/plan/v3) | `ark.agent-plan.api_key` |
+| 图片 | Default image surface | `defaults.image` |
+| 视频 | Default video surface | `defaults.video` |
+
+**Settings → OpenAI 兼容**
+
+| Group | Setting | Written to `config.json` |
+| --- | --- | --- |
+| 连接 | base_url (up to the version segment) | `openai.apiyi.base_url` |
+| 连接 | API key | `openai.apiyi.api_key` |
+| 连接 | Reference mode (json / multipart / none) | `openai.apiyi.refs_mode` |
+| 图片 | Default model | `openai.apiyi.model` |
+
+- Pasting a key writes it into the pack's `config.json` immediately; the field becomes a `✅ saved` marker (not blank, so a save never looks like a no-op).
+- You can also edit `config.json` by hand (see `config.example.json`) or set `ARK_API_KEY` (Ark only).
+- Resolution order: `node override → config section → ARK_API_KEY (Ark only) → built-in default`.
 
 ```jsonc
-"profiles": {
-  "standard":   { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/v3",      "api_key": "…" },
-  "agent-plan": { "kind": "ark",    "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" },
-  "relay":      { "kind": "openai", "base_url": "https://your-relay/v1", "api_key": "…", "refs_mode": "json" }
+{
+  "ark": {
+    "standard":   { "base_url": "https://ark.cn-beijing.volces.com/api/v3",      "api_key": "…" },
+    "agent-plan": { "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" }
+  },
+  "openai": {
+    "apiyi": { "base_url": "https://your-relay/v1", "api_key": "…", "refs_mode": "json", "model": "…" }
+  },
+  "defaults": { "image": "standard", "video": "standard" }
 }
 ```
 
-Video is Ark-only: pointing a video node at an `openai` profile fails with an
-explanation. Size comes from the `size` preset, or from `width` + `height` when
-both are above zero (Ark wants multiples of 16; an OpenAI endpoint does not).
+An older `profiles` (+ `kind`) file is migrated on read — no key needs re-entering.
 
-That is what lets this pack replace `comfyui-byokey`'s two families — Ark relay
-and third-party relay — with one node and two profiles.
+## Reference mode (refs_mode)
 
-## Configure
+| Value | Behaviour | Fits |
+| --- | --- | --- |
+| `json` | Reference images as data URLs in the body's `image` field | Ark and most relays |
+| `multipart` | A real `POST /images/edits` upload | OpenAI proper, or services that require it |
+| `none` | No references allowed | Text-to-image only |
 
-**The key lives inside this pack's folder** (`custom_nodes/ComfyUI-ArkFlex/config.json`),
-so uninstalling — deleting the folder — takes the key with it. Nothing is left
-in ComfyUI's global settings file.
+Start with `json`; if an image-to-image call returns 400 / 415 / "unsupported", switch to `multipart`. The node's own `refs_mode` overrides the setting for one call.
 
-Three ways to enter it; the first needs no file at all:
+## Sizes
 
-1. **ComfyUI Settings** — `Settings → Ark Flex` has four entries: *Standard API Key (/api/v3)*, *Agent Plan Key (/api/plan/v3)*, **default image surface** and **default video surface**.
-   Pasting a key writes it into the pack's `config.json` immediately and the field
-   turns into a **`✅ saved to config.json`** marker — not blank, so a save never
-   looks like a no-op. Paste again to replace it. No plaintext copy stays in
-   `user/default/comfy.settings.json`.
-   The two pickers write `defaults.image` / `defaults.video`, so images and video
-   can run on different surfaces (images on the standard API, video on Agent Plan).
-2. **`config.json`** → `profiles.<name>.api_key` (one machine, several profiles).
-3. **The node's `api_key_override`** (one call, one node).
-
-`ARK_API_KEY` still works as a fallback.
-
-Resolution order, first hit wins:
-
-```
-node override  ->  config.json profile  ->  legacy comfy.settings.json (read only)  ->  ARK_API_KEY  ->  built-in default
-```
-
-`config.json` is git-ignored on purpose: keys stay out of the repository.
+- `ArkImage`: the `size` preset, or `width` + `height` (both above zero; **Ark requires multiples of 16**).
+- `OpenAIImage`: a `size` string such as `1024x1024`, or `width` + `height` (no 16-multiple rule).
+- `ArkVideo`: `width`/`height` map onto Ark's `ratio` + resolution tier; `length` (frames) becomes 4–30 seconds via `fps`.
 
 ## Uninstall
 
-Delete `custom_nodes/ComfyUI-ArkFlex` and restart ComfyUI. Nodes, settings
-entries and the key all go with it — no residue.
-
-(One historical case: a key entered in an early version would sit in
-`user/default/comfy.settings.json`; the first load of this version migrates it
-into the pack folder and clears that record.)
-
-## Nodes
-
-### Ark 图片 · Seedream
-
-`prompt`, `model`, `size` (pixel presets, not labels — Ark bills by pixel steps),
-`max_images` (1–4, sequential calls with `seed + i`), `seed`, `watermark`,
-optional `image1..4` references, `custom_model`, `extra_json`.
-Returns an `IMAGE` batch and an info string.
-
-### Ark 视频 · Seedance
-
-`prompt`, `model`, `mode` (text / first frame / first + last / reference),
-`resolution`, `ratio`, `duration` (4–30 s), `generate_audio`, `output_format`,
-`seed`, `watermark`, `timeout`, `poll_seconds`, optional `first_frame`,
-`last_frame`, `ref_image1..3`, `custom_model`, `extra_json`.
-Returns a `VIDEO` plus an info string (on hosts without the `VIDEO` type, the
-saved file path only). Local reference images are sent as base64 data URLs, so
-no upload step is needed.
-
-The finished file is written under `output/ark/video/`.
-
-## Notes on models
-
-Model ids change often. The dropdowns carry the ones that existed when this was
-written; when yours is missing, put it in **`custom_model`** (or the endpoint id
-`ep-...` from the Ark console). That is deliberate: a stale hard-coded list is
-worse than a text box.
+Delete `custom_nodes/ComfyUI-ArkFlex` and restart. Nodes, settings entries and keys go with it.
 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests
 ```
 
-The tests are offline: they cover profile resolution, payload assembly per
-video mode, size parsing, error text, and the data-URL path (with the tensor
-encoder stubbed, since torch is a ComfyUI runtime dependency).
-
-## Prior art
-
-Written after reading `HinaAyanami/comfyui-ark-nodes` and
-`fkxianzhou/ComfyUI-Jimeng-API` (both MIT) — the protocol details and the
-Agent-Plan URL caveat come from them and from Volcengine's docs. This package
-differs in making the surface a first-class, per-node choice.
+Offline: endpoint resolution, migration, payloads, multipart framing, size validation, video mapping.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. Protocol details were cross-checked against `HinaAyanami/comfyui-ark-nodes` and `fkxianzhou/ComfyUI-Jimeng-API` (both MIT).
