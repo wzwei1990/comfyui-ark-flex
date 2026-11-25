@@ -323,7 +323,7 @@ class OpenAIImage:
         return {
             "required": {
                 "prompt": ("STRING", {"default": "", "multiline": True}),
-                "model": ("STRING", {"default": model, "tooltip": "接口方的模型名，例如 gpt-image-2.5-sunburst-vip。"}),
+                "model": ("STRING", {"default": model, "tooltip": "接口方的模型名（形如 gpt-image-…），以你的中转说明为准。"}),
                 "size": ("STRING", {"default": "1024x1024", "tooltip": "也常写作 1024x1536；部分接口只接受固定尺寸。"}),
                 "width": ("INT", {"default": 0, "min": 0, "max": 4096,
                                   "tooltip": "两者都 >0 时覆盖 size（由画布比例推导时用）。"}),
