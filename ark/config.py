@@ -83,13 +83,18 @@ def migrate(config: dict[str, Any]) -> dict[str, Any]:
 
     Read-only: the file is rewritten on the next save. Ark entries keep their
     names (so `standard` / `agent-plan` land where the built-ins expect them) and
-    everything `kind: openai` moves under `openai`.
+    everything `kind: openai` moves under `openai`. A superseded `profiles` block
+    is dropped even when it sits next to the new sections — otherwise the file
+    would hold two copies of every key.
     """
+    def without_legacy(value: dict[str, Any]) -> dict[str, Any]:
+        return {key: item for key, item in value.items() if key != "profiles"}
+
     if "ark" in config or "openai" in config:
-        return config
+        return without_legacy(config)
     old = config.get("profiles")
     if not isinstance(old, dict) or not old:
-        return config
+        return without_legacy(config)
     ark: dict[str, Any] = {}
     openai: dict[str, Any] = {}
     for name, entry in old.items():
@@ -110,8 +115,7 @@ def migrate(config: dict[str, Any]) -> dict[str, Any]:
                 "refs_mode": mode,
                 "model": entry.get("model") if isinstance(entry.get("model"), str) else "",
             }
-    out = dict(config)
-    out.pop("profiles", None)  # the old section is superseded, not kept alongside
+    out = without_legacy(config)
     if ark:
         out["ark"] = ark
     if openai:

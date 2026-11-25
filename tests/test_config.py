@@ -47,7 +47,12 @@ class MigrationTest(unittest.TestCase):
 
     def test_an_already_new_config_is_left_alone(self):
         new = {"ark": {"standard": {"api_key": "k"}}, "openai": {}}
-        self.assertIs(migrate(new), new)
+        migrated = migrate(new)
+        self.assertEqual(migrated, new)
+
+    def test_a_leftover_profiles_block_is_dropped(self):
+        mixed = {"ark": {"standard": {"api_key": "k"}}, "profiles": {"standard": {"api_key": "dup"}}}
+        self.assertNotIn("profiles", migrate(mixed), "a superseded section must not stay next to the new ones")
 
 
 class EndpointTest(unittest.TestCase):
