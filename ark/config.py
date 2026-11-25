@@ -111,6 +111,7 @@ def migrate(config: dict[str, Any]) -> dict[str, Any]:
                 "model": entry.get("model") if isinstance(entry.get("model"), str) else "",
             }
     out = dict(config)
+    out.pop("profiles", None)  # the old section is superseded, not kept alongside
     if ark:
         out["ark"] = ark
     if openai:

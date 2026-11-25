@@ -39,6 +39,7 @@ class MigrationTest(unittest.TestCase):
         migrated = migrate(OLD)
         self.assertIn("ark", migrated)
         self.assertIn("openai", migrated)
+        self.assertNotIn("profiles", migrated, "the superseded section must not be kept alongside")
         self.assertEqual(migrated["ark"][ARK_STANDARD]["api_key"], "std-key")
         self.assertEqual(migrated["openai"]["apiyi"]["api_key"], "relay-key")
         self.assertEqual(migrated["openai"]["apiyi"]["refs_mode"], "multipart")
