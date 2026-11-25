@@ -21,6 +21,17 @@ Volcengine Ark has two API surfaces with identical request bodies, but keys that
 
 A standard key against the plan URL returns **403**, and vice versa. Most packs hard-code the standard URL, which makes an Agent Plan key unusable.
 
+**Surface and model are not freely interchangeable** (measured):
+
+| Model | Works on | The other surface answers |
+| --- | --- | --- |
+| `doubao-seedream-5-0-pro` (images) | **Agent Plan** | 404 `InvalidEndpointOrModel.NotFound` on standard |
+| `doubao-seedance-2-5-flash-261115` (video) | **Standard** | 404 `UnsupportedModel: does not support the agent plan feature` on plan |
+
+So the usual setup is *images on the plan surface, video on standard* (`defaults.image = agent-plan`, `defaults.video = standard`); the node's `profile` starts from those fields.
+
+Also: **first-frame / first+last modes must not send `ratio`** — Ark returns `400 InvalidParameter.TaskTypeConstraint` because the ratio follows the conditioning image. The node now omits it in those modes.
+
 Here a *surface* is a **profile** — a named `(base_url, api_key)` pair — chosen per node, so images and video can use different surfaces. OpenAI-compatible relays live in their own `openai` section and never appear in the Ark dropdown.
 
 ## Features

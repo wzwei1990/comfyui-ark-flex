@@ -21,6 +21,17 @@
 
 用标准 Key 打 Agent Plan 地址会 **403**，反过来也一样。多数现成节点把标准地址写死，于是 Agent Plan 的 Key 直接不可用。
 
+**入口与模型也不是任意组合**（实测 2026-11）：
+
+| 模型 | 可用入口 | 另一入口的错误 |
+| --- | --- | --- |
+| `doubao-seedream-5-0-pro`（图片） | **Agent Plan** | 标准入口 404 `InvalidEndpointOrModel.NotFound` |
+| `doubao-seedance-2-5-flash-261115`（视频） | **标准 API** | Agent Plan 404 `UnsupportedModel: does not support the agent plan feature` |
+
+所以典型配置就是**图片走 plan、视频走 standard**（`defaults.image = agent-plan`、`defaults.video = standard`）。节点上的 `profile` 默认值取自这两个字段。
+
+另外：**首帧 / 首尾帧模式不能传 `ratio`** —— 方舟会返回 `400 InvalidParameter.TaskTypeConstraint`，宽高比跟随首帧图；节点已自动省略。
+
 本包把"入口"做成 **profile（接入面）**：一个有名字的 `(base_url, api_key)` 组合，按节点选择；图片和视频可以各走一套。第三方 OpenAI 兼容接口则单独归到 `openai` 那一节，和方舟互不影响。
 
 ## 特性

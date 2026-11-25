@@ -11,6 +11,7 @@ from .common import (
     COMMON_OPTIONS,
     PROFILE_INPUTS,
     client_for,
+    profile_input,
     merge_extra,
     model_id,
     output_dir,
@@ -141,7 +142,7 @@ class ArkVideo:
         options = VIDEO_MODELS if default_model in VIDEO_MODELS else [default_model, *VIDEO_MODELS]
         return {
             "required": {
-                "profile": PROFILE_INPUTS["profile"],
+                "profile": profile_input("video"),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
                 "model": (options, {"default": default_model}),
                 "mode": (MODES, {"default": MODES[0]}),
@@ -218,6 +219,7 @@ class ArkVideo:
         ratio_value = ratio_for(width, height, ratio)
         resolution_value = resolution_for(width, height, resolution)
         seconds = duration_for(length, duration, fps)
+        first_frame_mode = mode in (MODES[1], MODES[2])
         payload: dict[str, Any] = {
             "model": model_id(model, custom_model),
             "content": build_content(
@@ -228,11 +230,14 @@ class ArkVideo:
                 refs=[ref_image1, ref_image2, ref_image3],
             ),
             "resolution": resolution_value,
-            "ratio": ratio_value,
             "duration": seconds,
             "generate_audio": bool(generate_audio),
             "watermark": bool(watermark),
         }
+        if not first_frame_mode:
+            # For first-frame / first+last, Ark derives the ratio from the image
+            # and rejects an explicit one (400 InvalidParameter.TaskTypeConstraint).
+            payload["ratio"] = ratio_value
         if int(seed) >= 0:
             payload["seed"] = int(seed)
         payload = merge_extra(payload, extra_json)

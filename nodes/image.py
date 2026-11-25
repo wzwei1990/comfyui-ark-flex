@@ -21,6 +21,7 @@ from .common import (
     COMMON_OPTIONS,
     PROFILE_INPUTS,
     client_for,
+    profile_input,
     merge_extra,
     model_id,
     tensor_to_png,
@@ -215,7 +216,7 @@ class ArkImage:
         options = IMAGE_MODELS if default_model in IMAGE_MODELS else [default_model, *IMAGE_MODELS]
         return {
             "required": {
-                "profile": PROFILE_INPUTS["profile"],
+                "profile": profile_input("image"),
                 "prompt": ("STRING", {"default": "", "multiline": True}),
                 "model": (options, {"default": default_model}),
                 "size": (SIZES, {"default": SIZES[0]}),

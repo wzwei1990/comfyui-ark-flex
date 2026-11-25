@@ -9,13 +9,31 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..ark.config import ARK, CUSTOM, OPENAI, profile_names, resolve
+from ..ark.config import ARK, CUSTOM, OPENAI, defaults, profile_names, resolve
 from ..ark.errors import ArkError
 
 MAX_SEED = 2**31 - 1
 
+
+def profile_input(kind: str = "image"):
+    """A `profile` combo whose default follows `defaults.<kind>` in config.json.
+
+    A key can lack access to a model on one surface (Ark answers 404), so the
+    starting value should be whatever the user configured as their default rather
+    than a hard-coded `standard`.
+    """
+    try:
+        start = defaults().get(kind, "standard")
+    except Exception:
+        start = "standard"
+    options = profile_names(ARK)
+    if start not in options:
+        start = options[0]
+    return (options, {"default": start, "tooltip": "方舟接入面：standard (/api/v3) 或 agent-plan (/api/plan/v3)；两者 Key 与可访问模型都不通用。"})
+
+
 PROFILE_INPUTS = {
-    "profile": (profile_names(ARK), {"default": "standard", "tooltip": "方舟接入面：standard (/api/v3) 或 agent-plan (/api/plan/v3)；两者 Key 不通用。"}),
+    "profile": profile_input("image"),
     "base_url_override": ("STRING", {"default": "", "tooltip": "留空则用 profile 的地址；填了则覆盖（例如自己代理的兼容地址）。"}),
     "api_key_override": ("STRING", {"default": "", "tooltip": "留空则用 config.json / ARK_API_KEY；填了则只对本节点生效。"}),
 }
@@ -88,8 +106,11 @@ def tensor_to_png(image: Any, fmt: str = "PNG") -> tuple[bytes, str]:
     array = image[0] if getattr(image, "ndim", 0) == 4 else image
     if getattr(array, "requires_grad", False):
         array = array.detach()
-    pixels = (array.mul(255).clamp(0, 255).to("cpu", "uint8").numpy() if hasattr(array, "mul")
-              else np.clip(array, 0, 1) * 255)
+    if hasattr(array, "mul"):
+        # torch's `to` wants device/dtype keywords; `.to("cpu", "uint8")` is invalid.
+        pixels = array.mul(255).clamp(0, 255).to(device="cpu", dtype=torch.uint8).numpy()
+    else:
+        pixels = np.clip(array, 0, 1) * 255
     buffer = io.BytesIO()
     Image.fromarray(np.asarray(pixels, dtype=np.uint8)).save(buffer, format=fmt)
     return buffer.getvalue(), ("image/png" if fmt.upper() == "PNG" else "image/jpeg")
