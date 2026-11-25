@@ -86,7 +86,7 @@ git clone https://github.com/wzwei1990/comfyui-ark-flex.git ComfyUI-ArkFlex
     "agent-plan": { "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" }
   },
   "openai": {
-    "apiyi": { "base_url": "https://你的中转/v1", "api_key": "…", "refs_mode": "json", "model": "gpt-image-2.5-sunburst-vip" }
+    "apiyi": { "base_url": "https://你的中转/v1", "api_key": "…", "refs_mode": "json", "model": "你的模型名" }
   },
   "defaults": { "image": "standard", "video": "standard" }
 }

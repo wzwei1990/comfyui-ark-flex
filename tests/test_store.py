@@ -41,13 +41,13 @@ class StoreTest(unittest.TestCase):
             openai_base_url="https://relay.invalid/v1",
             openai_api_key="relay-key",
             openai_refs_mode="multipart",
-            openai_model="gpt-image-2.5",
+            openai_model="relay-model",
             path=self.path,
         )
         self.assertTrue(state["openai"]["apiKey"])
         self.assertEqual(state["openai"]["baseUrl"], "https://relay.invalid/v1")
         self.assertEqual(state["openai"]["refsMode"], "multipart")
-        self.assertEqual(state["openai"]["model"], "gpt-image-2.5")
+        self.assertEqual(state["openai"]["model"], "relay-model")
         self.assertNotIn("ark", self.config())
 
     def test_an_empty_string_clears_only_that_value(self):

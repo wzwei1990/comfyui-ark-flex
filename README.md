@@ -85,7 +85,7 @@ Restart ComfyUI; the nodes appear under **Ark / 火山方舟**.
     "agent-plan": { "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "api_key": "…" }
   },
   "openai": {
-    "apiyi": { "base_url": "https://your-relay/v1", "api_key": "…", "refs_mode": "json", "model": "…" }
+    "apiyi": { "base_url": "https://your-relay/v1", "api_key": "…", "refs_mode": "json", "model": "your model name" }
   },
   "defaults": { "image": "standard", "video": "standard" }
 }

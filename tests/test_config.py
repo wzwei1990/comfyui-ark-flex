@@ -29,7 +29,7 @@ OLD = {
         "standard": {"base_url": STANDARD_BASE_URL, "api_key": "std-key"},
         "agent-plan": {"base_url": AGENT_PLAN_BASE_URL + "/", "api_key": "plan-key"},
         "apiyi": {"base_url": "https://relay.invalid/v1", "api_key": "relay-key", "kind": "openai",
-                  "refs_mode": "multipart", "model": "gpt-image-2.5"},
+                  "refs_mode": "multipart", "model": "relay-model"},
     },
     "defaults": {"image": "apiyi", "video": "standard"},
 }
@@ -44,7 +44,7 @@ class MigrationTest(unittest.TestCase):
         self.assertEqual(migrated["ark"][ARK_STANDARD]["api_key"], "std-key")
         self.assertEqual(migrated["openai"]["apiyi"]["api_key"], "relay-key")
         self.assertEqual(migrated["openai"]["apiyi"]["refs_mode"], "multipart")
-        self.assertEqual(migrated["openai"]["apiyi"]["model"], "gpt-image-2.5")
+        self.assertEqual(migrated["openai"]["apiyi"]["model"], "relay-model")
 
     def test_an_already_new_config_is_left_alone(self):
         new = {"ark": {"standard": {"api_key": "k"}}, "openai": {}}
