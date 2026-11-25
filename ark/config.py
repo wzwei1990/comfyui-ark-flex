@@ -38,6 +38,11 @@ ARK = "ark"
 OPENAI = "openai"
 REFS_MODES = ("json", "multipart", "none")
 
+#: Initial model names for the Settings dialog; every one of them is editable.
+ARK_IMAGE_MODEL_DEFAULT = "doubao-seedream-5-0-pro"
+ARK_VIDEO_MODEL_DEFAULT = "doubao-seedance-2-5-flash-261115"
+OPENAI_MODEL_DEFAULT = "gpt-image-2.6-sunburst"
+
 NODE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = NODE_DIR / "config.json"
 EXAMPLE_PATH = NODE_DIR / "config.example.json"
@@ -213,6 +218,26 @@ def first_model(provider: str, config: dict[str, Any] | None = None) -> str:
     return ""
 
 
+def ark_models(config: dict[str, Any] | None = None) -> dict[str, str]:
+    """`ark.image_model` / `ark.video_model`, with the built-in starting values."""
+    cfg = loaded_config() if config is None else migrate(config)
+    section = cfg.get("ark") if isinstance(cfg.get("ark"), dict) else {}
+    out = {"image": ARK_IMAGE_MODEL_DEFAULT, "video": ARK_VIDEO_MODEL_DEFAULT}
+    for kind in ("image", "video"):
+        value = section.get(f"{kind}_model")
+        if isinstance(value, str) and value.strip():
+            out[kind] = value.strip()
+    return out
+
+
+def openai_model(config: dict[str, Any] | None = None) -> str:
+    """The relay's default model, falling back to the shipped starting value."""
+    for endpoint in openai_endpoints(config).values():
+        if endpoint.model:
+            return endpoint.model
+    return OPENAI_MODEL_DEFAULT
+
+
 def resolve(
     provider: str,
     *,
@@ -255,23 +280,28 @@ def resolve(
 __all__ = [
     "AGENT_PLAN_BASE_URL",
     "ARK",
+    "ARK_IMAGE_MODEL_DEFAULT",
     "ARK_PLAN",
     "ARK_STANDARD",
     "ARK_BASE_URLS",
+    "ARK_VIDEO_MODEL_DEFAULT",
     "CONFIG_PATH",
     "CUSTOM",
     "Endpoint",
     "OPENAI",
+    "OPENAI_MODEL_DEFAULT",
     "OPENAI_PROFILE",
     "REFS_MODES",
     "STANDARD_BASE_URL",
     "ark_endpoints",
+    "ark_models",
     "defaults",
     "endpoints",
     "first_model",
     "loaded_config",
     "migrate",
     "openai_endpoints",
+    "openai_model",
     "profile_names",
     "raw_config",
     "resolve",

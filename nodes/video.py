@@ -135,11 +135,15 @@ class ArkVideo:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
+        from ..ark.config import ark_models, loaded_config
+
+        default_model = ark_models(loaded_config())["video"]
+        options = VIDEO_MODELS if default_model in VIDEO_MODELS else [default_model, *VIDEO_MODELS]
         return {
             "required": {
                 "profile": PROFILE_INPUTS["profile"],
                 "prompt": ("STRING", {"default": "", "multiline": True}),
-                "model": (VIDEO_MODELS, {"default": VIDEO_MODELS[0]}),
+                "model": (options, {"default": default_model}),
                 "mode": (MODES, {"default": MODES[0]}),
                 "resolution": (RESOLUTIONS, {"default": "720p"}),
                 "ratio": (RATIOS, {"default": "16:9"}),

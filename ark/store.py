@@ -23,8 +23,10 @@ from .config import (
     CONFIG_PATH,
     OPENAI_PROFILE,
     REFS_MODES,
+    ark_models,
     migrate,
     openai_endpoints,
+    openai_model,
     ark_endpoints,
 )
 
@@ -74,6 +76,8 @@ def write_settings(
     *,
     ark_standard: str | None = None,
     ark_plan: str | None = None,
+    ark_image_model: str | None = None,
+    ark_video_model: str | None = None,
     openai_base_url: str | None = None,
     openai_api_key: str | None = None,
     openai_refs_mode: str | None = None,
@@ -94,7 +98,7 @@ def write_settings(
     if openai_refs_mode is not None and openai_refs_mode not in REFS_MODES:
         raise ValueError(f"refs_mode 只能是 {' / '.join(REFS_MODES)}")
 
-    if ark_standard is not None or ark_plan is not None:
+    if ark_standard is not None or ark_plan is not None or ark_image_model is not None or ark_video_model is not None:
         section = _section(config, "ark")
         for name, value in ((ARK_STANDARD, ark_standard), (ARK_PLAN, ark_plan)):
             if value is None:
@@ -108,6 +112,14 @@ def write_settings(
                 entry["api_key"] = text
             else:
                 entry.pop("api_key", None)
+        for key, value in (("image_model", ark_image_model), ("video_model", ark_video_model)):
+            if value is None:
+                continue
+            text = value.strip()
+            if text:
+                section[key] = text
+            else:
+                section.pop(key, None)
 
     if any(v is not None for v in (openai_base_url, openai_api_key, openai_refs_mode, openai_model)):
         section = _section(config, "openai")
@@ -150,18 +162,21 @@ def presence(path: Path | None = None) -> dict[str, Any]:
     """What the dialog can show without echoing a secret."""
     config = migrate(read_config(path))
     ark = ark_endpoints(config)
+    models = ark_models(config)
     openai = openai_endpoints(config)
     entry = openai.get(OPENAI_PROFILE)
     return {
         "ark": {
             "standard": bool(ark.get(ARK_STANDARD) and ark[ARK_STANDARD].api_key),
             "agentPlan": bool(ark.get(ARK_PLAN) and ark[ARK_PLAN].api_key),
+            "imageModel": models["image"],
+            "videoModel": models["video"],
         },
         "openai": {
             "baseUrl": entry.base_url if entry else "",
             "apiKey": bool(entry and entry.api_key),
             "refsMode": entry.refs_mode if entry else "json",
-            "model": entry.model if entry else "",
+            "model": openai_model(config),
         },
         "defaults": {
             "image": (config.get("defaults") or {}).get("image") or ARK_STANDARD,

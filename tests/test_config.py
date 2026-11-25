@@ -15,8 +15,9 @@ from arkflex.ark.config import (
     OPENAI,
     STANDARD_BASE_URL,
     ark_endpoints,
+    ark_models,
     defaults,
-    first_model,
+    openai_model,
     migrate,
     openai_endpoints,
     profile_names,
@@ -119,7 +120,13 @@ class ResolveTest(unittest.TestCase):
         self.assertEqual(resolve(OPENAI, config=config).name, "apiyi")
         self.assertEqual(resolve(OPENAI, config=config).refs_mode, "multipart")
         self.assertEqual(defaults(config)["image"], ARK_STANDARD)
-        self.assertEqual(first_model(OPENAI, {"openai": {"a": {"base_url": "https://x/v1", "model": "m"}}}), "m")
+
+    def test_model_defaults_are_shipped_values_and_editable(self):
+        self.assertEqual(ark_models({}), {"image": "doubao-seedream-5-0-pro", "video": "doubao-seedance-2-5-flash-261115"})
+        edited = {"ark": {"image_model": "doubao-seedream-4-5", "video_model": "doubao-seedance-2-0-260128"}}
+        self.assertEqual(ark_models(edited), {"image": "doubao-seedream-4-5", "video": "doubao-seedance-2-0-260128"})
+        self.assertEqual(openai_model({}), "gpt-image-2.6-sunburst")
+        self.assertEqual(openai_model({"openai": {"a": {"base_url": "https://x/v1", "model": "m"}}}), "m")
 
 
 if __name__ == "__main__":

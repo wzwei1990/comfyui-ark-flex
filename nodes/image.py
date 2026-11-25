@@ -209,11 +209,15 @@ class ArkImage:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
+        from ..ark.config import ark_models, loaded_config
+
+        default_model = ark_models(loaded_config())["image"]
+        options = IMAGE_MODELS if default_model in IMAGE_MODELS else [default_model, *IMAGE_MODELS]
         return {
             "required": {
                 "profile": PROFILE_INPUTS["profile"],
                 "prompt": ("STRING", {"default": "", "multiline": True}),
-                "model": (IMAGE_MODELS, {"default": IMAGE_MODELS[0]}),
+                "model": (options, {"default": default_model}),
                 "size": (SIZES, {"default": SIZES[0]}),
                 "width": ("INT", {"default": 0, "min": 0, "max": 4096,
                                   "tooltip": "0 = 用 size 预设；由流程按画布比例推导时填这里（两者都要 >0）。"}),
@@ -309,12 +313,12 @@ class OpenAIImage:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
-        from ..ark.config import loaded_config, openai_endpoints
+        from ..ark.config import loaded_config, openai_endpoints, openai_model
 
         known = openai_endpoints(loaded_config())
         entry = next(iter(known.values()), None)
         base = entry.base_url if entry else ""
-        model = entry.model if entry and entry.model else ""
+        model = openai_model(loaded_config())
         return {
             "required": {
                 "prompt": ("STRING", {"default": "", "multiline": True}),

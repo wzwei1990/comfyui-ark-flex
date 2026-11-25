@@ -86,6 +86,19 @@ class StoreTest(unittest.TestCase):
         self.assertTrue(state["openai"]["apiKey"])
         self.assertTrue(state["ark"]["agentPlan"])
 
+    def test_model_defaults_are_written_into_the_ark_section(self):
+        state = write_settings(ark_image_model="doubao-seedream-4-5", ark_video_model="doubao-seedance-2-0-260128", path=self.path)
+        self.assertEqual(state["ark"]["imageModel"], "doubao-seedream-4-5")
+        self.assertEqual(state["ark"]["videoModel"], "doubao-seedance-2-0-260128")
+        config = self.config()
+        self.assertEqual(config["ark"]["image_model"], "doubao-seedream-4-5")
+
+    def test_model_defaults_read_back_the_shipped_values(self):
+        state = presence(self.path)
+        self.assertEqual(state["ark"]["imageModel"], "doubao-seedream-5-0-pro")
+        self.assertEqual(state["ark"]["videoModel"], "doubao-seedance-2-5-flash-261115")
+        self.assertEqual(state["openai"]["model"], "gpt-image-2.6-sunburst")
+
     def test_no_temporary_files_are_left_behind(self):
         write_settings(ark_standard="k", path=self.path)
         leftovers = [name for name in self.path.parent.iterdir() if name.name.startswith(".config-")]

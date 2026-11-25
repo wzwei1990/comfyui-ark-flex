@@ -180,10 +180,32 @@ app.registerExtension({
       name: "默认模型",
       category: ["OpenAI 兼容","图片","默认模型"],
       type: "text",
-      defaultValue: "",
+      defaultValue: "gpt-image-2.6-sunburst",
       tooltip: "节点上 model 留空时使用；也可以直接写进节点。",
       onChange(value) {
         void adoptVisible("openaiModel", value);
+      },
+    },
+    {
+      id: "Ark.ImageModel",
+      name: "默认模型",
+      category: ["方舟 Ark","图片","默认模型"],
+      type: "text",
+      defaultValue: "doubao-seedream-5-0-pro",
+      tooltip: "ArkImage 节点的初始模型（可改；节点上也能覆盖）。",
+      onChange(value) {
+        void adoptVisible("arkImageModel", value);
+      },
+    },
+    {
+      id: "Ark.VideoModel",
+      name: "默认模型",
+      category: ["方舟 Ark","视频","默认模型"],
+      type: "text",
+      defaultValue: "doubao-seedance-2-5-flash-261115",
+      tooltip: "ArkVideo 节点的初始模型（可改；节点上也能覆盖）。",
+      onChange(value) {
+        void adoptVisible("arkVideoModel", value);
       },
     },
   ],
@@ -211,6 +233,8 @@ app.registerExtension({
       };
       setIfDifferent("OpenAI.BaseUrl", openai.baseUrl);
       setIfDifferent("OpenAI.DefaultModel", openai.model);
+      setIfDifferent("Ark.ImageModel", ark.imageModel);
+      setIfDifferent("Ark.VideoModel", ark.videoModel);
       if (typeof openai.refsMode === "string" && openai.refsMode) {
         app.ui.settings.setSettingValue("OpenAI.RefsMode", openai.refsMode);
       }

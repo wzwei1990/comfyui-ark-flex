@@ -13,6 +13,8 @@ from . import store
 _FIELDS = {
     "arkStandard": "ark_standard",
     "arkPlan": "ark_plan",
+    "arkImageModel": "ark_image_model",
+    "arkVideoModel": "ark_video_model",
     "openaiBaseUrl": "openai_base_url",
     "openaiApiKey": "openai_api_key",
     "openaiRefsMode": "openai_refs_mode",
